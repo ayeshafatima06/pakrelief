@@ -1,0 +1,109 @@
+{
+  "version": "1.0",
+  "entities": {
+    "User": {
+      "collection": "users",
+      "fields": {
+        "firebaseUid": "string",
+        "email": "string",
+        "name": "string",
+        "role": "string",
+        "contact": "string",
+        "cnic": "string",
+        "verificationStatus": "string",
+        "emailVerified": "boolean",
+        "createdAt": "timestamp"
+      }
+    },
+    "NGO": {
+      "collection": "ngos",
+      "fields": {
+        "linkedUserId": "string",
+        "organizationName": "string",
+        "registrationType": "string",
+        "registrationNumber": "string",
+        "focalPerson": "string",
+        "phone": "string",
+        "status": "string",
+        "verificationDocs": "array"
+      }
+    },
+    "Supplier": {
+      "collection": "suppliers",
+      "fields": {
+        "linkedUserId": "string",
+        "companyName": "string",
+        "businessType": "string",
+        "cuinOrCnic": "string",
+        "status": "string",
+        "warehouseCity": "string",
+        "verificationDocs": "array"
+      }
+    },
+    "Campaign": {
+      "collection": "campaigns",
+      "fields": {
+        "disasterName": "string",
+        "disasterType": "string",
+        "location": "string",
+        "description": "string",
+        "photoUrl": "string",
+        "status": "string",
+        "ngoId": "string",
+        "ngoName": "string",
+        "targetBeneficiaries": "number",
+        "createdAt": "timestamp"
+      }
+    },
+    "Requirement": {
+      "collection": "requirements",
+      "fields": {
+        "campaignId": "string",
+        "itemType": "string",
+        "category": "string",
+        "quantityNeeded": "number",
+        "quantityFunded": "number",
+        "quantityDelivered": "number",
+        "urgency": "string",
+        "deadline": "string",
+        "unit": "string",
+        "estimatedUnitCost": "number",
+        "status": "string"
+      }
+    },
+    "Product": {
+      "collection": "products",
+      "fields": {
+        "supplierId": "string",
+        "supplierName": "string",
+        "name": "string",
+        "category": "string",
+        "price": "number",
+        "stock": "number",
+        "unit": "string",
+        "specifications": "string",
+        "location": "string",
+        "status": "string"
+      }
+    },
+    "Order": {
+      "collection": "orders",
+      "fields": {
+        "orderNumber": "string",
+        "donorId": "string",
+        "donorName": "string",
+        "supplierId": "string",
+        "supplierName": "string",
+        "ngoId": "string",
+        "campaignId": "string",
+        "amount": "number",
+        "status": "string",
+        "items": "array",
+        "createdAt": "timestamp",
+        "dispatchedAt": "timestamp",
+        "deliveredAt": "timestamp",
+        "ngoConfirmedAt": "timestamp"
+      }
+    }
+  }
+}

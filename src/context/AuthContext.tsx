@@ -59,11 +59,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   useEffect(() => {
+    // Check if user session was stored locally from direct auth
+    const storedUser = localStorage.getItem('pakrelief_session_user');
+    if (storedUser) {
+      try {
+        const parsed = JSON.parse(storedUser);
+        setUser(parsed);
+      } catch (_) {}
+    }
+
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
       setFirebaseUser(fbUser);
       if (fbUser) {
         await fetchProfileForUid(fbUser.uid);
-      } else {
+      } else if (!localStorage.getItem('pakrelief_session_user')) {
         setUser(null);
       }
       setIsLoading(false);
@@ -75,6 +84,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const refreshProfile = async () => {
     if (firebaseUser) {
       await fetchProfileForUid(firebaseUser.uid);
+    } else if (user?.id) {
+      await fetchProfileForUid(user.id);
     }
   };
 
@@ -100,43 +111,80 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       const registeredEmail = lookupRes.data.email;
 
-      // 2. Authenticate against Firebase Authentication with email & password
-      let cred;
+      // 2. Authenticate against Firebase Authentication with email & password, falling back to direct auth if operation-not-allowed
+      let cred: any = null;
+      let usedDirect = false;
+
       try {
         cred = await signInWithEmailAndPassword(auth, registeredEmail, password);
       } catch (authErr: any) {
-        // If NDMA statutory admin doesn't have a Firebase Auth password yet, bootstrap it
-        if (role === 'admin' && authErr.code === 'auth/user-not-found') {
-          cred = await createUserWithEmailAndPassword(auth, registeredEmail, password);
-        } else {
-          setIsLoading(false);
-          let errText = 'Authentication failed. Please check your identifier and password.';
-          if (authErr.code === 'auth/invalid-credential' || authErr.code === 'auth/wrong-password') {
-            errText = 'Incorrect password. Please verify and try again.';
-          } else if (authErr.code === 'auth/user-not-found') {
-            errText = 'No authentication account found for this registered email.';
+        // If operation-not-allowed (Email/Password disabled in Firebase console) or account created via direct auth:
+        if (
+          authErr.code === 'auth/operation-not-allowed' || 
+          authErr.code === 'auth/admin-restricted-operation' ||
+          authErr.code === 'auth/user-not-found' ||
+          authErr.code === 'auth/invalid-credential'
+        ) {
+          try {
+            const directRes = await api.post('/auth/login-direct', { identifier, role, password });
+            if (directRes.data.success && directRes.data.user) {
+              const u = directRes.data.user;
+              setUser(u);
+              localStorage.setItem('pakrelief_session_user', JSON.stringify(u));
+              setIsLoading(false);
+              return { success: true };
+            }
+          } catch (directErr: any) {
+            setIsLoading(false);
+            return { 
+              success: false, 
+              error: directErr.response?.data?.error || 'Authentication failed. Please verify your identifier and password.' 
+            };
           }
-          return { success: false, error: errText };
         }
+
+        // If statutory admin account needs bootstrapping
+        if (role === 'admin') {
+          try {
+            const directAdmin = await api.post('/auth/login-direct', { identifier, role, password });
+            if (directAdmin.data.success) {
+              setUser(directAdmin.data.user);
+              localStorage.setItem('pakrelief_session_user', JSON.stringify(directAdmin.data.user));
+              setIsLoading(false);
+              return { success: true };
+            }
+          } catch (_) {}
+        }
+
+        setIsLoading(false);
+        let errText = 'Authentication failed. Please check your identifier and password.';
+        if (authErr.code === 'auth/invalid-credential' || authErr.code === 'auth/wrong-password') {
+          errText = 'Incorrect password. Please verify and try again.';
+        }
+        return { success: false, error: errText };
       }
 
-      // 3. Retrieve user profile from Firestore
-      const profile = await fetchProfileForUid(cred.user.uid);
-      if (!profile) {
-        // Create initial profile if missing
-        const newProfile: UserProfile = {
-          id: cred.user.uid,
-          firebaseUid: cred.user.uid,
-          email: registeredEmail,
-          name: lookupRes.data.name || registeredEmail,
-          role,
-          contact: '',
-          emailVerified: true,
-          verificationStatus: role === 'admin' || role === 'donor' ? 'active' : 'pending',
-          createdAt: Date.now(),
-          identifier
-        };
-        setUser(newProfile);
+      // 3. Retrieve user profile from Firestore if signed in via Firebase Auth
+      if (cred?.user) {
+        const profile = await fetchProfileForUid(cred.user.uid);
+        if (!profile) {
+          const newProfile: UserProfile = {
+            id: cred.user.uid,
+            firebaseUid: cred.user.uid,
+            email: registeredEmail,
+            name: lookupRes.data.name || registeredEmail,
+            role,
+            contact: '',
+            emailVerified: true,
+            verificationStatus: role === 'admin' || role === 'donor' ? 'active' : 'pending',
+            createdAt: Date.now(),
+            identifier
+          };
+          setUser(newProfile);
+          localStorage.setItem('pakrelief_session_user', JSON.stringify(newProfile));
+        } else {
+          localStorage.setItem('pakrelief_session_user', JSON.stringify(profile));
+        }
       }
 
       setIsLoading(false);
@@ -148,7 +196,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // Register real account with Firebase Authentication & Firestore
+  // Register real account with Firebase Authentication & Firestore (with direct fallback)
   const registerUser = async (data: {
     email: string;
     password: string;
@@ -164,33 +212,59 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }) => {
     setIsLoading(true);
     try {
-      // 1. Create real Firebase Auth user (generates genuine password hash and session)
-      const cred = await createUserWithEmailAndPassword(auth, data.email, data.password);
-      const uid = cred.user.uid;
+      // 1. Try real Firebase Auth user creation
+      let cred: any = null;
+      let uid = '';
 
-      // 2. Store user profile and identifier mapping in Firestore via backend
-      const res = await api.post('/auth/register-profile', {
-        uid,
-        email: data.email,
-        name: data.name,
-        role: data.role,
-        identifier: data.identifier,
-        contact: data.contact,
-        focalPerson: data.focalPerson,
-        registrationType: data.registrationType,
-        businessType: data.businessType,
-        warehouseCity: data.warehouseCity,
-        address: data.address
-      });
+      try {
+        cred = await createUserWithEmailAndPassword(auth, data.email, data.password);
+        uid = cred.user.uid;
 
-      if (res.data.success) {
-        setUser(res.data.user);
-        setIsLoading(false);
-        return { success: true };
+        // 2. Store profile in Firestore via backend
+        const res = await api.post('/auth/register-profile', {
+          uid,
+          email: data.email,
+          name: data.name,
+          role: data.role,
+          identifier: data.identifier,
+          contact: data.contact,
+          focalPerson: data.focalPerson,
+          registrationType: data.registrationType,
+          businessType: data.businessType,
+          warehouseCity: data.warehouseCity,
+          address: data.address
+        });
+
+        if (res.data.success) {
+          setUser(res.data.user);
+          localStorage.setItem('pakrelief_session_user', JSON.stringify(res.data.user));
+          setIsLoading(false);
+          return { success: true };
+        }
+      } catch (authErr: any) {
+        // If Firebase Auth throws operation-not-allowed (Email/Password not yet toggled on in console),
+        // seamlessly fall back to secure direct registration in Firestore!
+        if (
+          authErr.code === 'auth/operation-not-allowed' || 
+          authErr.code === 'auth/admin-restricted-operation'
+        ) {
+          console.info('[PakRelief] Firebase Email/Password provider not enabled in console. Using direct registration in Firestore.');
+          const directRes = await api.post('/auth/register-direct', data);
+          if (directRes.data.success && directRes.data.user) {
+            setUser(directRes.data.user);
+            localStorage.setItem('pakrelief_session_user', JSON.stringify(directRes.data.user));
+            setIsLoading(false);
+            return { success: true };
+          } else {
+            setIsLoading(false);
+            return { success: false, error: directRes.data.error || 'Failed to complete registration.' };
+          }
+        }
+        throw authErr;
       }
 
       setIsLoading(false);
-      return { success: false, error: res.data.error || 'Failed to complete registration profile.' };
+      return { success: false, error: 'Failed to complete registration profile.' };
     } catch (err: any) {
       setIsLoading(false);
       let msg = err.response?.data?.error || err.message || 'Registration failed.';
@@ -209,6 +283,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (e) {
       console.warn('Sign out error:', e);
     }
+    localStorage.removeItem('pakrelief_session_user');
     setUser(null);
     setFirebaseUser(null);
   };

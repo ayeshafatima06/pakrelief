@@ -14,6 +14,8 @@ export interface UserProfile {
   verificationStatus: VerificationStatus;
   createdAt: number;
   identifier?: string;
+  passwordHash?: string;
+  passwordSalt?: string;
   rejectionReason?: string;
   ngoDetails?: {
     organizationName?: string;

@@ -13,21 +13,26 @@ import {
   ShieldCheck,
   ArrowUpRight
 } from 'lucide-react';
-import { Order } from '../types';
+import { Order, Campaign } from '../types';
 import { useAuth } from '../context/AuthContext';
 
 interface DonorDashboardProps {
   orders: Order[];
+  campaigns?: Campaign[];
   onViewReceipt: (order: Order) => void;
   onExploreCampaigns: () => void;
+  onSelectCampaign?: (campaign: Campaign) => void;
 }
 
 export const DonorDashboard: React.FC<DonorDashboardProps> = ({ 
   orders, 
+  campaigns = [],
   onViewReceipt, 
-  onExploreCampaigns 
+  onExploreCampaigns,
+  onSelectCampaign
 }) => {
   const { user } = useAuth();
+  const [activeTab, setActiveTab] = useState<'campaigns' | 'orders'>('campaigns');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
 
@@ -142,57 +147,166 @@ export const DonorDashboard: React.FC<DonorDashboardProps> = ({
         </div>
       </div>
 
-      {/* Filter & Search Bar */}
-      <div className="bg-white p-4 rounded-xl border border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-xs">
-        <div className="flex items-center gap-2 w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0">
-          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider shrink-0 flex items-center gap-1">
-            <Filter className="w-3.5 h-3.5" />
-            Status:
-          </span>
-          {['all', 'Payment Confirmed', 'Dispatched', 'Delivered', 'NGO Confirmed'].map(st => (
-            <button
-              key={st}
-              onClick={() => setStatusFilter(st)}
-              className={`px-3 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition ${
-                statusFilter === st
-                  ? 'bg-slate-900 text-white'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              {st === 'all' ? 'All Orders' : st}
-            </button>
-          ))}
-        </div>
+      {/* Role Landing Tabs */}
+      <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
+        <button
+          onClick={() => setActiveTab('campaigns')}
+          className={`px-4 py-2.5 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+            activeTab === 'campaigns'
+              ? 'bg-slate-900 text-white shadow-xs'
+              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+          }`}
+        >
+          <Package className="w-4 h-4 text-emerald-400" />
+          <span>Active Relief Campaigns to Fund</span>
+          {campaigns.length > 0 && (
+            <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-emerald-600 text-white font-mono">
+              {campaigns.length}
+            </span>
+          )}
+        </button>
 
-        <div className="relative w-full sm:w-64">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            placeholder="Search order #, disaster, NGO..."
-            className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-          />
-        </div>
+        <button
+          onClick={() => setActiveTab('orders')}
+          className={`px-4 py-2.5 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+            activeTab === 'orders'
+              ? 'bg-slate-900 text-white shadow-xs'
+              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+          }`}
+        >
+          <Receipt className="w-4 h-4 text-teal-400" />
+          <span>My Funded Orders & Receipts</span>
+          <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-slate-700 text-white font-mono">
+            {myOrders.length}
+          </span>
+        </button>
       </div>
 
-      {/* Orders List */}
-      <div className="space-y-4">
-        {filteredOrders.length === 0 ? (
-          <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center">
-            <Package className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-            <h4 className="text-base font-bold text-slate-800">No Orders Found</h4>
-            <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-              You haven't funded items matching this filter yet. Browse active disaster campaigns to fund exact needs with live traceability.
-            </p>
-            <button
-              onClick={onExploreCampaigns}
-              className="mt-4 px-4 py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 transition"
-            >
-              Browse Active Disasters
-            </button>
+      {/* TAB 1: CAMPAIGNS VIEW */}
+      {activeTab === 'campaigns' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-base font-bold text-slate-900">
+              Disaster Relief Needs Requiring Verified Donor Support
+            </h3>
+            <span className="text-xs text-slate-500">
+              100% itemized supplies delivered directly to verified camps
+            </span>
           </div>
-        ) : (
+
+          {campaigns.length === 0 ? (
+            <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center">
+              <Package className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+              <h4 className="text-base font-bold text-slate-800">No Active Relief Campaigns</h4>
+              <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                No active disaster campaigns are currently listed. Please check back shortly or explore past orders.
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+              {campaigns.map((camp) => (
+                <div
+                  key={camp.id}
+                  className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs hover:shadow-md transition flex flex-col justify-between"
+                >
+                  <div>
+                    <div className="relative h-44 w-full bg-slate-100 overflow-hidden">
+                      <img
+                        src={camp.photoUrl}
+                        alt={camp.disasterName}
+                        className="w-full h-full object-cover"
+                      />
+                      <div className="absolute top-3 left-3 bg-slate-900/80 backdrop-blur-xs text-white text-[10px] font-bold px-2 py-0.5 rounded">
+                        {camp.disasterType} &bull; {camp.province}
+                      </div>
+                    </div>
+
+                    <div className="p-4 space-y-2">
+                      <div className="text-[11px] font-semibold text-emerald-700">
+                        {camp.ngoName}
+                      </div>
+                      <h4 className="font-bold text-sm text-slate-900 line-clamp-1">
+                        {camp.disasterName}
+                      </h4>
+                      <p className="text-xs text-slate-500 line-clamp-2">
+                        {camp.description}
+                      </p>
+                      <div className="text-[11px] text-slate-400">
+                        Target: <strong className="text-slate-700">{camp.targetBeneficiaries.toLocaleString()} people</strong> in {camp.district}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="p-4 pt-0">
+                    <button
+                      onClick={() => onSelectCampaign ? onSelectCampaign(camp) : onExploreCampaigns()}
+                      className="w-full py-2.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
+                    >
+                      <span>Select Supplies to Fund</span>
+                      <ArrowUpRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* TAB 2: ORDERS VIEW */}
+      {activeTab === 'orders' && (
+        <div className="space-y-6">
+          {/* Filter & Search Bar */}
+          <div className="bg-white p-4 rounded-xl border border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-xs">
+            <div className="flex items-center gap-2 w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0">
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider shrink-0 flex items-center gap-1">
+                <Filter className="w-3.5 h-3.5" />
+                Status:
+              </span>
+              {['all', 'Payment Confirmed', 'Dispatched', 'Delivered', 'NGO Confirmed'].map(st => (
+                <button
+                  key={st}
+                  onClick={() => setStatusFilter(st)}
+                  className={`px-3 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition cursor-pointer ${
+                    statusFilter === st
+                      ? 'bg-slate-900 text-white'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  {st === 'all' ? 'All Orders' : st}
+                </button>
+              ))}
+            </div>
+
+            <div className="relative w-full sm:w-64">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder="Search order #, disaster, NGO..."
+                className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+            </div>
+          </div>
+
+          {/* Orders List */}
+          <div className="space-y-4">
+            {filteredOrders.length === 0 ? (
+              <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center">
+                <Package className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                <h4 className="text-base font-bold text-slate-800">No Orders Found</h4>
+                <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                  You haven't funded items matching this filter yet.
+                </p>
+                <button
+                  onClick={() => setActiveTab('campaigns')}
+                  className="mt-4 px-4 py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 transition cursor-pointer"
+                >
+                  Browse Relief Needs
+                </button>
+              </div>
+            ) : (
           filteredOrders.map(order => (
             <div
               key={order.id}
@@ -294,7 +408,9 @@ export const DonorDashboard: React.FC<DonorDashboardProps> = ({
             </div>
           ))
         )}
-      </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

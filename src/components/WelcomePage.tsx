@@ -1,387 +1,283 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { 
   ShieldCheck, 
   ArrowRight, 
-  Package, 
-  Truck, 
   Building2, 
+  Truck, 
   HeartHandshake, 
-  ChevronRight,
-  AlertTriangle,
-  FileCheck,
-  CreditCard,
-  PlusCircle
+  Search,
+  CheckCircle2,
+  Lock,
+  PackageCheck
 } from 'lucide-react';
-import { Campaign } from '../types';
+import { UserRole } from '../types';
 
 interface WelcomePageProps {
-  stats: any;
-  featuredCampaign?: Campaign;
   onNavigate: (page: string) => void;
-  onSelectCampaign: (campaign: Campaign) => void;
-  onOpenAuth: () => void;
+  onOpenAuthWithRole: (role: UserRole, mode: 'login' | 'register') => void;
+  onQuickTrackOrder?: (orderNumber: string) => void;
 }
 
 export const WelcomePage: React.FC<WelcomePageProps> = ({
-  stats,
-  featuredCampaign,
   onNavigate,
-  onSelectCampaign,
-  onOpenAuth
+  onOpenAuthWithRole,
+  onQuickTrackOrder
 }) => {
+  const [quickTrackId, setQuickTrackId] = useState('');
+
+  const handleTrackSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (quickTrackId.trim()) {
+      if (onQuickTrackOrder) {
+        onQuickTrackOrder(quickTrackId.trim());
+      } else {
+        onNavigate('tracker');
+      }
+    }
+  };
+
   return (
-    <div className="space-y-16 py-6 pb-20">
-      {/* 1. HERO SECTION */}
-      <section className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="bg-gradient-to-br from-slate-900 via-emerald-950 to-slate-900 text-white rounded-3xl p-8 sm:p-14 shadow-2xl relative overflow-hidden border border-emerald-800/40">
-          <div className="absolute -right-20 -top-20 w-80 h-80 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
-          <div className="absolute -left-20 -bottom-20 w-80 h-80 bg-teal-500/10 rounded-full blur-3xl pointer-events-none" />
+    <div className="py-10 pb-24 space-y-16">
+      {/* 1. SIMPLE & DIFFERENT WELCOME HERO */}
+      <section className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+        {/* Official Statutory Badge */}
+        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-emerald-50 text-emerald-800 text-xs font-bold border border-emerald-200 mb-6 shadow-xs">
+          <ShieldCheck className="w-4 h-4 text-emerald-600" />
+          <span>OFFICIAL PAKISTAN DISASTER RELIEF CONSORTIUM</span>
+        </div>
 
-          <div className="relative z-10 max-w-3xl">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-bold border border-emerald-500/30 mb-6 tracking-wide">
-              <ShieldCheck className="w-4 h-4 text-emerald-400" />
-              <span>OFFICIAL PAKISTAN DISASTER RELIEF CONSORTIUM</span>
-            </div>
+        {/* Hero Headline */}
+        <h1 className="text-4xl sm:text-6xl font-black text-slate-900 tracking-tight leading-tight">
+          PakRelief
+        </h1>
+        <p className="text-xl sm:text-2xl font-bold text-emerald-700 mt-2">
+          Direct, Itemized Relief for Disaster-Affected Communities
+        </p>
 
-            <h1 className="text-3xl sm:text-5xl lg:text-6xl font-black tracking-tight leading-tight">
-              Pak Relief
-            </h1>
-            <p className="text-xl sm:text-2xl font-bold text-emerald-200 mt-2">
-              Traceable E-Commerce Relief for Pakistan
-            </p>
+        {/* Concise Mission Statement */}
+        <p className="text-slate-600 text-sm sm:text-base mt-4 max-w-2xl mx-auto leading-relaxed">
+          Replacing unverified cash donations with 100% itemized, traceable relief goods. 
+          Every ration box, medical kit, clean water unit, and shelter tent is purchased at wholesale prices 
+          and verified by field inspectors upon physical arrival at disaster camps across Pakistan.
+        </p>
 
-            <p className="text-slate-300 text-sm sm:text-base mt-4 leading-relaxed max-w-2xl">
-              PakRelief transforms disaster response in Pakistan by replacing blind cash donations with 
-              <strong> 100% itemized, verifiable e-commerce relief orders</strong>. We connect Donors, 
-              accredited NGOs, vetted local Suppliers, and NDMA regulators in one transparent pipeline.
-            </p>
+        {/* Primary Call to Action */}
+        <div className="flex flex-wrap items-center justify-center gap-3 mt-8">
+          <button
+            onClick={() => onOpenAuthWithRole('donor', 'login')}
+            className="px-6 py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-sm shadow-md shadow-emerald-700/20 flex items-center gap-2 transition transform active:scale-95 cursor-pointer"
+          >
+            <span>Sign In to Access Your Portal</span>
+            <ArrowRight className="w-4 h-4" />
+          </button>
 
-            {/* Main Action Buttons */}
-            <div className="flex flex-wrap items-center gap-3 mt-8">
-              <button
-                onClick={() => onNavigate('disasters')}
-                className="px-6 py-3.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl font-bold text-sm shadow-lg shadow-emerald-900/40 flex items-center gap-2 transition transform active:scale-95 cursor-pointer"
-              >
-                <span>Browse Relief Operations</span>
-                <ArrowRight className="w-4 h-4" />
-              </button>
-
-              <button
-                onClick={() => onNavigate('how-it-works')}
-                className="px-5 py-3.5 bg-slate-800/80 hover:bg-slate-700 text-white rounded-xl font-bold text-sm border border-slate-700 flex items-center gap-2 transition cursor-pointer"
-              >
-                <span>How Traceability Works</span>
-                <ChevronRight className="w-4 h-4 text-slate-400" />
-              </button>
-
-              <button
-                onClick={() => onNavigate('portals')}
-                className="px-5 py-3.5 bg-white/10 hover:bg-white/20 text-emerald-300 rounded-xl font-bold text-sm border border-emerald-500/30 flex items-center gap-2 transition cursor-pointer"
-              >
-                <span>Stakeholder Portals</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Real Live Database Stats Strip */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-12 pt-8 border-t border-slate-800/80 relative z-10">
-            <div>
-              <span className="text-[11px] text-slate-400 uppercase tracking-wider font-semibold block">Active Disasters</span>
-              <span className="text-2xl sm:text-3xl font-black font-mono text-emerald-400">
-                {stats?.activeDisasters || 0}
-              </span>
-              <span className="text-[10px] text-slate-400 mt-0.5 block">Live Operations</span>
-            </div>
-
-            <div>
-              <span className="text-[11px] text-slate-400 uppercase tracking-wider font-semibold block">Goods Requested</span>
-              <span className="text-2xl sm:text-3xl font-black font-mono text-white">
-                {(stats?.totalQuantityNeeded || 0).toLocaleString()}
-              </span>
-              <span className="text-[10px] text-slate-400 mt-0.5 block">Itemized Units</span>
-            </div>
-
-            <div>
-              <span className="text-[11px] text-slate-400 uppercase tracking-wider font-semibold block">Verified Delivered</span>
-              <span className="text-2xl sm:text-3xl font-black font-mono text-teal-300">
-                {(stats?.totalQuantityDelivered || 0).toLocaleString()}
-              </span>
-              <span className="text-[10px] text-slate-400 mt-0.5 block">Camp Confirmed</span>
-            </div>
-
-            <div>
-              <span className="text-[11px] text-slate-400 uppercase tracking-wider font-semibold block">Aid Processed</span>
-              <span className="text-2xl sm:text-3xl font-black font-mono text-amber-300">
-                PKR {(stats?.totalAmountRaised || 0).toLocaleString()}
-              </span>
-              <span className="text-[10px] text-slate-400 mt-0.5 block">Verified by JazzCash</span>
-            </div>
-          </div>
+          <button
+            onClick={() => onNavigate('disasters')}
+            className="px-5 py-3.5 bg-white hover:bg-slate-50 text-slate-800 rounded-xl font-bold text-sm border border-slate-300 shadow-xs flex items-center gap-2 transition cursor-pointer"
+          >
+            <span>Browse Relief Needs</span>
+          </button>
         </div>
       </section>
 
-      {/* 2. THE 4-STEP RELIEF PIPELINE */}
-      <section className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="text-center max-w-2xl mx-auto mb-10">
-          <span className="text-xs font-bold uppercase tracking-widest text-emerald-700 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200">
-            Step-by-Step Transparency
+      {/* 2. SIMPLE ROLE ACCESS GATEWAY (Enter by Role) */}
+      <section className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="text-center mb-6">
+          <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
+            Select Your Role to Sign In or Register
           </span>
-          <h2 className="text-2xl sm:text-3xl font-black text-slate-900 mt-2">
-            The 4-Stage Relief Chain
-          </h2>
-          <p className="text-xs sm:text-sm text-slate-600 mt-1">
-            Every Rupee spent is tied to a specific item from request to physical camp confirmation.
-          </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
-          {/* Step 1 */}
-          <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm relative flex flex-col justify-between">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {/* Card 1: Donor */}
+          <div className="bg-white rounded-2xl p-6 border border-slate-200 hover:border-emerald-500 shadow-sm transition flex flex-col justify-between group">
             <div>
-              <div className="flex items-center justify-between mb-4">
-                <span className="w-8 h-8 rounded-xl bg-rose-100 text-rose-700 font-black text-sm flex items-center justify-center">
-                  01
+              <div className="flex items-center justify-between mb-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center font-bold">
+                  <HeartHandshake className="w-5 h-5" />
+                </div>
+                <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-100">
+                  CNIC Verified
                 </span>
-                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Demand</span>
               </div>
-              <h3 className="font-bold text-base text-slate-900 mb-1">Disaster Need</h3>
-              <p className="text-xs text-slate-600 leading-relaxed">
-                Vetted NGOs (SECP/Trust registered) survey ground zero and post exact itemized requirements, quantities, and camp coordinates.
+              <h3 className="font-bold text-base text-slate-900">Donors & Public</h3>
+              <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                Fund specific relief packages, pay securely via JazzCash, and download itemized tax-compliant receipts with live delivery tracking.
               </p>
             </div>
-            <div className="mt-4 pt-3 border-t border-slate-100 flex items-center text-xs font-bold text-rose-600">
-              <Building2 className="w-3.5 h-3.5 mr-1" />
-              <span>NGO Assessment</span>
+            <div className="mt-5 pt-4 border-t border-slate-100 flex items-center gap-2">
+              <button
+                onClick={() => onOpenAuthWithRole('donor', 'login')}
+                className="flex-1 py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition text-center cursor-pointer shadow-xs"
+              >
+                Donor Sign In
+              </button>
+              <button
+                onClick={() => onOpenAuthWithRole('donor', 'register')}
+                className="py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition text-center cursor-pointer"
+              >
+                Register
+              </button>
             </div>
           </div>
 
-          {/* Step 2 */}
-          <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm relative flex flex-col justify-between">
+          {/* Card 2: NGO */}
+          <div className="bg-white rounded-2xl p-6 border border-slate-200 hover:border-teal-500 shadow-sm transition flex flex-col justify-between group">
             <div>
-              <div className="flex items-center justify-between mb-4">
-                <span className="w-8 h-8 rounded-xl bg-blue-100 text-blue-700 font-black text-sm flex items-center justify-center">
-                  02
+              <div className="flex items-center justify-between mb-3">
+                <div className="w-10 h-10 rounded-xl bg-teal-50 text-teal-700 flex items-center justify-center font-bold">
+                  <Building2 className="w-5 h-5" />
+                </div>
+                <span className="text-[11px] font-bold text-teal-700 bg-teal-50 px-2.5 py-0.5 rounded-full border border-teal-100">
+                  SECP / Trust
                 </span>
-                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Supply</span>
               </div>
-              <h3 className="font-bold text-base text-slate-900 mb-1">Supplier Products</h3>
-              <p className="text-xs text-slate-600 leading-relaxed">
-                Accredited Pakistani manufacturers list standardized rations, tents, and medicines at fixed, transparent PKR wholesale prices.
+              <h3 className="font-bold text-base text-slate-900">Relief Foundations (NGOs)</h3>
+              <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                Post ground-zero relief requirements with GPS coordinates and conduct physical camp inspection sign-offs when goods arrive.
               </p>
             </div>
-            <div className="mt-4 pt-3 border-t border-slate-100 flex items-center text-xs font-bold text-blue-600">
-              <Package className="w-3.5 h-3.5 mr-1" />
-              <span>Vetted Catalog</span>
+            <div className="mt-5 pt-4 border-t border-slate-100 flex items-center gap-2">
+              <button
+                onClick={() => onOpenAuthWithRole('ngo', 'login')}
+                className="flex-1 py-2 px-3 bg-teal-700 hover:bg-teal-800 text-white rounded-lg text-xs font-bold transition text-center cursor-pointer shadow-xs"
+              >
+                NGO Sign In
+              </button>
+              <button
+                onClick={() => onOpenAuthWithRole('ngo', 'register')}
+                className="py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition text-center cursor-pointer"
+              >
+                Register
+              </button>
             </div>
           </div>
 
-          {/* Step 3 */}
-          <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm relative flex flex-col justify-between">
+          {/* Card 3: Supplier */}
+          <div className="bg-white rounded-2xl p-6 border border-slate-200 hover:border-blue-500 shadow-sm transition flex flex-col justify-between group">
             <div>
-              <div className="flex items-center justify-between mb-4">
-                <span className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-700 font-black text-sm flex items-center justify-center">
-                  03
+              <div className="flex items-center justify-between mb-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-700 flex items-center justify-center font-bold">
+                  <Truck className="w-5 h-5" />
+                </div>
+                <span className="text-[11px] font-bold text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded-full border border-blue-100">
+                  CUIN / NTN
                 </span>
-                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Payment</span>
               </div>
-              <h3 className="font-bold text-base text-slate-900 mb-1">Donor Cart & Pay</h3>
-              <p className="text-xs text-slate-600 leading-relaxed">
-                Donors add exact supplies to cart (e.g. 5 ration packs). Backend independently verifies the transaction with JazzCash.
+              <h3 className="font-bold text-base text-slate-900">Suppliers & Manufacturers</h3>
+              <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                List standardized rations and emergency shelter supplies at wholesale rates, manage dispatch logistics, and attach courier tracking.
               </p>
             </div>
-            <div className="mt-4 pt-3 border-t border-slate-100 flex items-center text-xs font-bold text-emerald-600">
-              <CreditCard className="w-3.5 h-3.5 mr-1" />
-              <span>JazzCash Gateway</span>
+            <div className="mt-5 pt-4 border-t border-slate-100 flex items-center gap-2">
+              <button
+                onClick={() => onOpenAuthWithRole('supplier', 'login')}
+                className="flex-1 py-2 px-3 bg-blue-700 hover:bg-blue-800 text-white rounded-lg text-xs font-bold transition text-center cursor-pointer shadow-xs"
+              >
+                Supplier Sign In
+              </button>
+              <button
+                onClick={() => onOpenAuthWithRole('supplier', 'register')}
+                className="py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition text-center cursor-pointer"
+              >
+                Register
+              </button>
             </div>
           </div>
 
-          {/* Step 4 */}
-          <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm relative flex flex-col justify-between">
+          {/* Card 4: NDMA Admin */}
+          <div className="bg-white rounded-2xl p-6 border border-slate-200 hover:border-purple-500 shadow-sm transition flex flex-col justify-between group">
             <div>
-              <div className="flex items-center justify-between mb-4">
-                <span className="w-8 h-8 rounded-xl bg-teal-100 text-teal-700 font-black text-sm flex items-center justify-center">
-                  04
+              <div className="flex items-center justify-between mb-3">
+                <div className="w-10 h-10 rounded-xl bg-purple-50 text-purple-700 flex items-center justify-center font-bold">
+                  <ShieldCheck className="w-5 h-5" />
+                </div>
+                <span className="text-[11px] font-bold text-purple-700 bg-purple-50 px-2.5 py-0.5 rounded-full border border-purple-100">
+                  Statutory NDMA
                 </span>
-                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Audit</span>
               </div>
-              <h3 className="font-bold text-base text-slate-900 mb-1">Delivery & Sign-off</h3>
-              <p className="text-xs text-slate-600 leading-relaxed">
-                Suppliers dispatch with courier tracking. NGO field logistics officers independently inspect and certify receipt before closure.
+              <h3 className="font-bold text-base text-slate-900">NDMA Statutory Authority</h3>
+              <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                Regulate stakeholder accreditations, audit financial inflows and transactions, and direct national disaster response priorities.
               </p>
             </div>
-            <div className="mt-4 pt-3 border-t border-slate-100 flex items-center text-xs font-bold text-teal-700">
-              <FileCheck className="w-3.5 h-3.5 mr-1" />
-              <span>Certified Delivery</span>
+            <div className="mt-5 pt-4 border-t border-slate-100 flex items-center gap-2">
+              <button
+                onClick={() => onOpenAuthWithRole('admin', 'login')}
+                className="w-full py-2 px-3 bg-purple-700 hover:bg-purple-800 text-white rounded-lg text-xs font-bold transition text-center cursor-pointer shadow-xs"
+              >
+                NDMA Admin Portal Sign In
+              </button>
             </div>
           </div>
         </div>
       </section>
 
-      {/* 3. FEATURED EMERGENCY OR EMPTY STATE */}
-      <section className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-        {featuredCampaign ? (
-          <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-md flex flex-col md:flex-row">
-            <div className="md:w-5/12 relative h-64 md:h-auto min-h-[260px]">
-              <img
-                src={featuredCampaign.photoUrl}
-                alt={featuredCampaign.disasterName}
-                className="w-full h-full object-cover"
+      {/* 3. SIMPLE VERIFY RECEIPT / ORDER LOOKUP */}
+      <section className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="bg-slate-900 text-white rounded-2xl p-6 sm:p-8 shadow-md border border-slate-800">
+          <div className="flex items-center gap-2 text-xs font-bold text-emerald-400 uppercase tracking-wider mb-2">
+            <PackageCheck className="w-4 h-4" />
+            <span>Public Traceability Lookup</span>
+          </div>
+          <h3 className="text-lg font-bold text-white mb-1">
+            Verify Any Relief Order or Receipt
+          </h3>
+          <p className="text-xs text-slate-400 mb-4">
+            Enter any PakRelief order identifier to instantly check live dispatch, courier tracking, and NGO camp sign-off.
+          </p>
+
+          <form onSubmit={handleTrackSubmit} className="flex flex-col sm:flex-row gap-2">
+            <div className="relative flex-1">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3.5" />
+              <input
+                type="text"
+                value={quickTrackId}
+                onChange={(e) => setQuickTrackId(e.target.value)}
+                placeholder="e.g. ORD-PK-2026-001"
+                className="w-full pl-9 pr-3 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-xs font-mono text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
               />
-              <div className="absolute top-4 left-4 bg-rose-600 text-white text-[11px] font-black uppercase px-2.5 py-1 rounded-md shadow-md flex items-center gap-1.5">
-                <AlertTriangle className="w-3.5 h-3.5" />
-                <span>Urgent Priority</span>
-              </div>
             </div>
-
-            <div className="p-6 sm:p-8 md:w-7/12 flex flex-col justify-between space-y-4">
-              <div>
-                <div className="flex items-center gap-2 text-xs font-bold text-slate-500 mb-1">
-                  <span>{featuredCampaign.province}, Pakistan</span>
-                  <span>&bull;</span>
-                  <span className="text-emerald-700 font-semibold">{featuredCampaign.ngoName}</span>
-                </div>
-
-                <h3 className="text-xl sm:text-2xl font-black text-slate-900">
-                  {featuredCampaign.disasterName}
-                </h3>
-
-                <p className="text-xs sm:text-sm text-slate-600 mt-2 line-clamp-3">
-                  {featuredCampaign.description}
-                </p>
-
-                {featuredCampaign.urgentNotice && (
-                  <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 font-medium">
-                    ⚠️ {featuredCampaign.urgentNotice}
-                  </div>
-                )}
-              </div>
-
-              <div className="flex items-center justify-between pt-4 border-t border-slate-100">
-                <div>
-                  <span className="text-[11px] text-slate-400 block font-semibold">Beneficiaries Targeted</span>
-                  <span className="text-base font-black font-mono text-slate-800">
-                    {featuredCampaign.targetBeneficiaries.toLocaleString()} Individuals
-                  </span>
-                </div>
-
-                <button
-                  onClick={() => onSelectCampaign(featuredCampaign)}
-                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition shadow-sm flex items-center gap-2 cursor-pointer"
-                >
-                  <span>Select Supplies to Fund</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="bg-white rounded-3xl border border-slate-200 p-8 sm:p-12 text-center shadow-sm space-y-4">
-            <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-700 flex items-center justify-center mx-auto">
-              <Building2 className="w-6 h-6" />
-            </div>
-            <h3 className="text-lg font-bold text-slate-900">
-              No Active Disaster Campaigns Currently Posted
-            </h3>
-            <p className="text-xs sm:text-sm text-slate-500 max-w-lg mx-auto">
-              Verified relief foundations (SECP, Societies, or Trust registered) can register their organization and publish itemized disaster relief requirements with camp coordinates.
-            </p>
-            <div className="pt-2 flex justify-center gap-3">
-              <button
-                onClick={() => onNavigate('portals')}
-                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer shadow-sm"
-              >
-                <PlusCircle className="w-4 h-4" />
-                <span>Publish Campaign via NGO Portal</span>
-              </button>
-            </div>
-          </div>
-        )}
+            <button
+              type="submit"
+              className="py-2.5 px-5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl transition cursor-pointer shrink-0"
+            >
+              Verify Order
+            </button>
+          </form>
+        </div>
       </section>
 
-      {/* 4. CHOOSE A ROLE / PERSONA PORTALS */}
-      <section className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="text-center max-w-xl mx-auto mb-8">
-          <span className="text-xs font-bold uppercase tracking-widest text-slate-500 bg-slate-200 px-3 py-1 rounded-full">
-            Multi-User Roles
-          </span>
-          <h2 className="text-2xl font-black text-slate-900 mt-2">
-            Explore by User Portal
-          </h2>
-          <p className="text-xs text-slate-600 mt-1">
-            PakRelief enforces Role-Based Access Control (RBAC) across 4 verified stakeholder types:
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {/* Donor */}
-          <div 
-            onClick={() => onNavigate('portals')}
-            className="bg-white p-5 rounded-2xl border border-slate-200 hover:border-emerald-500 hover:shadow-md transition cursor-pointer group"
-          >
-            <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold mb-3 group-hover:scale-105 transition">
-              <HeartHandshake className="w-5 h-5 text-emerald-700" />
-            </div>
-            <h4 className="font-bold text-sm text-slate-900">Donor Portal</h4>
-            <p className="text-xs text-slate-500 mt-1">
-              Browse disasters, checkout with JazzCash, and track receipts end-to-end.
-            </p>
-            <div className="mt-3 text-xs font-bold text-emerald-600 flex items-center gap-1">
-              <span>Enter Portal</span>
-              <ChevronRight className="w-3.5 h-3.5" />
+      {/* 4. TRUST & SECURITY STANDARDS */}
+      <section className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-4 border-t border-slate-200">
+          <div className="flex items-start gap-3">
+            <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+            <div>
+              <h4 className="font-bold text-xs text-slate-900">Zero Unaudited Cash</h4>
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                Every transaction maps directly to cataloged relief supplies.
+              </p>
             </div>
           </div>
 
-          {/* NGO */}
-          <div 
-            onClick={() => onNavigate('portals')}
-            className="bg-white p-5 rounded-2xl border border-slate-200 hover:border-teal-500 hover:shadow-md transition cursor-pointer group"
-          >
-            <div className="w-10 h-10 rounded-xl bg-teal-100 text-teal-800 flex items-center justify-center font-bold mb-3 group-hover:scale-105 transition">
-              <Building2 className="w-5 h-5 text-teal-700" />
-            </div>
-            <h4 className="font-bold text-sm text-slate-900">NGO Relief Center</h4>
-            <p className="text-xs text-slate-500 mt-1">
-              Submit itemized requests, manage campaigns, and verify physical delivery at camps.
-            </p>
-            <div className="mt-3 text-xs font-bold text-teal-700 flex items-center gap-1">
-              <span>Enter Portal</span>
-              <ChevronRight className="w-3.5 h-3.5" />
+          <div className="flex items-start gap-3">
+            <Lock className="w-5 h-5 text-teal-600 shrink-0 mt-0.5" />
+            <div>
+              <h4 className="font-bold text-xs text-slate-900">Regulated Accreditation</h4>
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                SECP, Societies, and CUIN verified stakeholders under NDMA oversight.
+              </p>
             </div>
           </div>
 
-          {/* Supplier */}
-          <div 
-            onClick={() => onNavigate('portals')}
-            className="bg-white p-5 rounded-2xl border border-slate-200 hover:border-blue-500 hover:shadow-md transition cursor-pointer group"
-          >
-            <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-800 flex items-center justify-center font-bold mb-3 group-hover:scale-105 transition">
-              <Truck className="w-5 h-5 text-blue-700" />
-            </div>
-            <h4 className="font-bold text-sm text-slate-900">Supplier Logistics</h4>
-            <p className="text-xs text-slate-500 mt-1">
-              List fixed-price relief items, fulfill orders, and attach courier tracking.
-            </p>
-            <div className="mt-3 text-xs font-bold text-blue-600 flex items-center gap-1">
-              <span>Enter Portal</span>
-              <ChevronRight className="w-3.5 h-3.5" />
-            </div>
-          </div>
-
-          {/* Admin */}
-          <div 
-            onClick={() => onNavigate('portals')}
-            className="bg-white p-5 rounded-2xl border border-slate-200 hover:border-purple-500 hover:shadow-md transition cursor-pointer group"
-          >
-            <div className="w-10 h-10 rounded-xl bg-purple-100 text-purple-800 flex items-center justify-center font-bold mb-3 group-hover:scale-105 transition">
-              <ShieldCheck className="w-5 h-5 text-purple-700" />
-            </div>
-            <h4 className="font-bold text-sm text-slate-900">NDMA Central Admin</h4>
-            <p className="text-xs text-slate-500 mt-1">
-              Audit NGO registrations (SECP/Trust), approve suppliers, and review transactions.
-            </p>
-            <div className="mt-3 text-xs font-bold text-purple-700 flex items-center gap-1">
-              <span>Enter Portal</span>
-              <ChevronRight className="w-3.5 h-3.5" />
+          <div className="flex items-start gap-3">
+            <ShieldCheck className="w-5 h-5 text-purple-600 shrink-0 mt-0.5" />
+            <div>
+              <h4 className="font-bold text-xs text-slate-900">Camp Proof Sign-Off</h4>
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                Field inspectors inspect shipments and log physical proof before closure.
+              </p>
             </div>
           </div>
         </div>

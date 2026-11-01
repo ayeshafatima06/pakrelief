@@ -93,7 +93,7 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPage, onNavigate, onOpenA
           {/* Logo / Home Button */}
           <div 
             className="flex items-center gap-3 cursor-pointer" 
-            onClick={() => onNavigate('welcome')}
+            onClick={() => onNavigate(user ? 'dashboard' : 'welcome')}
           >
             <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-emerald-600 to-teal-800 flex items-center justify-center text-white shadow-md shadow-emerald-700/20">
               <ShieldCheck className="w-6 h-6" />
@@ -111,85 +111,98 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPage, onNavigate, onOpenA
             </div>
           </div>
 
-          {/* Clean Navigation Pages */}
+          {/* Clean Navigation Pages (Role-Tailored) */}
           <nav className="hidden lg:flex items-center gap-1">
-            <button
-              onClick={() => onNavigate('welcome')}
-              className={`px-3 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
-                currentPage === 'welcome'
-                  ? 'bg-slate-900 text-white'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-              }`}
-            >
-              Welcome
-            </button>
+            {!user ? (
+              <>
+                <button
+                  onClick={() => onNavigate('welcome')}
+                  className={`px-3 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
+                    currentPage === 'welcome'
+                      ? 'bg-slate-900 text-white'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  Welcome
+                </button>
 
-            <button
-              onClick={() => onNavigate('disasters')}
-              className={`px-3 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
-                currentPage === 'disasters'
-                  ? 'bg-slate-900 text-white'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-              }`}
-            >
-              <Compass className="w-3.5 h-3.5" />
-              <span>Relief Operations</span>
-            </button>
+                <button
+                  onClick={() => onNavigate('disasters')}
+                  className={`px-3 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                    currentPage === 'disasters'
+                      ? 'bg-slate-900 text-white'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  <Compass className="w-3.5 h-3.5" />
+                  <span>Relief Needs</span>
+                </button>
 
-            <button
-              onClick={() => onNavigate('how-it-works')}
-              className={`px-3 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
-                currentPage === 'how-it-works'
-                  ? 'bg-slate-900 text-white'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-              }`}
-            >
-              <HelpCircle className="w-3.5 h-3.5" />
-              <span>How It Works</span>
-            </button>
+                <button
+                  onClick={() => onNavigate('tracker')}
+                  className={`px-3 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                    currentPage === 'tracker'
+                      ? 'bg-slate-900 text-white'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  <Search className="w-3.5 h-3.5" />
+                  <span>Track Orders</span>
+                </button>
+              </>
+            ) : (
+              <>
+                {/* Logged in role-specific primary landing button */}
+                <button
+                  onClick={() => onNavigate('dashboard')}
+                  className={`px-3 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                    currentPage === 'dashboard'
+                      ? 'bg-emerald-700 text-white shadow-xs'
+                      : 'text-slate-700 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  <LayoutDashboard className="w-3.5 h-3.5" />
+                  <span>
+                    {role === 'donor' && 'My Giving Hub'}
+                    {role === 'ngo' && 'NGO Relief Operations'}
+                    {role === 'supplier' && 'Supplier Logistics Hub'}
+                    {role === 'admin' && 'NDMA Command Center'}
+                  </span>
+                </button>
 
-            <button
-              onClick={() => onNavigate('tracker')}
-              className={`px-3 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
-                currentPage === 'tracker'
-                  ? 'bg-slate-900 text-white'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-              }`}
-            >
-              <Search className="w-3.5 h-3.5" />
-              <span>Track Orders</span>
-            </button>
+                {/* Permitted secondary pages */}
+                {(role === 'donor' || role === 'admin' || role === 'ngo') && (
+                  <button
+                    onClick={() => onNavigate('disasters')}
+                    className={`px-3 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                      currentPage === 'disasters'
+                        ? 'bg-slate-900 text-white'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                    }`}
+                  >
+                    <Compass className="w-3.5 h-3.5" />
+                    <span>Relief Operations</span>
+                  </button>
+                )}
 
-            <button
-              onClick={() => onNavigate('portals')}
-              className={`px-3 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
-                currentPage === 'portals'
-                  ? 'bg-slate-900 text-white'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-              }`}
-            >
-              <ShieldCheck className="w-3.5 h-3.5" />
-              <span>Portals</span>
-            </button>
-
-            {user && (
-              <button
-                onClick={() => onNavigate('dashboard')}
-                className={`px-3 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
-                  currentPage === 'dashboard'
-                    ? 'bg-emerald-700 text-white'
-                    : 'text-emerald-700 hover:bg-emerald-50'
-                }`}
-              >
-                <LayoutDashboard className="w-3.5 h-3.5" />
-                <span>My Dashboard</span>
-              </button>
+                <button
+                  onClick={() => onNavigate('tracker')}
+                  className={`px-3 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                    currentPage === 'tracker'
+                      ? 'bg-slate-900 text-white'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  <Search className="w-3.5 h-3.5" />
+                  <span>Track Orders</span>
+                </button>
+              </>
             )}
           </nav>
 
           {/* Right Action Tools: Cart + Auth */}
           <div className="flex items-center gap-3">
-            {/* Relief Cart */}
+            {/* Relief Cart (primarily for donors/public) */}
             <button
               onClick={() => setIsCartOpen(true)}
               className="relative p-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 transition cursor-pointer flex items-center gap-1.5"
@@ -236,55 +249,63 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPage, onNavigate, onOpenA
 
         {/* Mobile Page Navigation Links */}
         <div className="flex lg:hidden overflow-x-auto gap-1 pb-2 pt-1 border-t border-slate-100 text-xs">
-          <button
-            onClick={() => onNavigate('welcome')}
-            className={`px-3 py-1.5 rounded-lg shrink-0 font-bold ${
-              currentPage === 'welcome' ? 'bg-slate-900 text-white' : 'text-slate-600'
-            }`}
-          >
-            Welcome
-          </button>
-          <button
-            onClick={() => onNavigate('disasters')}
-            className={`px-3 py-1.5 rounded-lg shrink-0 font-bold ${
-              currentPage === 'disasters' ? 'bg-slate-900 text-white' : 'text-slate-600'
-            }`}
-          >
-            Operations
-          </button>
-          <button
-            onClick={() => onNavigate('how-it-works')}
-            className={`px-3 py-1.5 rounded-lg shrink-0 font-bold ${
-              currentPage === 'how-it-works' ? 'bg-slate-900 text-white' : 'text-slate-600'
-            }`}
-          >
-            How It Works
-          </button>
-          <button
-            onClick={() => onNavigate('tracker')}
-            className={`px-3 py-1.5 rounded-lg shrink-0 font-bold ${
-              currentPage === 'tracker' ? 'bg-slate-900 text-white' : 'text-slate-600'
-            }`}
-          >
-            Track
-          </button>
-          <button
-            onClick={() => onNavigate('portals')}
-            className={`px-3 py-1.5 rounded-lg shrink-0 font-bold ${
-              currentPage === 'portals' ? 'bg-slate-900 text-white' : 'text-slate-600'
-            }`}
-          >
-            Portals
-          </button>
-          {user && (
-            <button
-              onClick={() => onNavigate('dashboard')}
-              className={`px-3 py-1.5 rounded-lg shrink-0 font-bold ${
-                currentPage === 'dashboard' ? 'bg-emerald-700 text-white' : 'text-emerald-700'
-              }`}
-            >
-              Dashboard
-            </button>
+          {!user ? (
+            <>
+              <button
+                onClick={() => onNavigate('welcome')}
+                className={`px-3 py-1.5 rounded-lg shrink-0 font-bold ${
+                  currentPage === 'welcome' ? 'bg-slate-900 text-white' : 'text-slate-600'
+                }`}
+              >
+                Welcome
+              </button>
+              <button
+                onClick={() => onNavigate('disasters')}
+                className={`px-3 py-1.5 rounded-lg shrink-0 font-bold ${
+                  currentPage === 'disasters' ? 'bg-slate-900 text-white' : 'text-slate-600'
+                }`}
+              >
+                Relief Needs
+              </button>
+              <button
+                onClick={() => onNavigate('tracker')}
+                className={`px-3 py-1.5 rounded-lg shrink-0 font-bold ${
+                  currentPage === 'tracker' ? 'bg-slate-900 text-white' : 'text-slate-600'
+                }`}
+              >
+                Track
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={() => onNavigate('dashboard')}
+                className={`px-3 py-1.5 rounded-lg shrink-0 font-bold ${
+                  currentPage === 'dashboard' ? 'bg-emerald-700 text-white' : 'text-emerald-700'
+                }`}
+              >
+                {role === 'donor' && 'Giving Hub'}
+                {role === 'ngo' && 'NGO Ops'}
+                {role === 'supplier' && 'Logistics'}
+                {role === 'admin' && 'NDMA Console'}
+              </button>
+              <button
+                onClick={() => onNavigate('disasters')}
+                className={`px-3 py-1.5 rounded-lg shrink-0 font-bold ${
+                  currentPage === 'disasters' ? 'bg-slate-900 text-white' : 'text-slate-600'
+                }`}
+              >
+                Operations
+              </button>
+              <button
+                onClick={() => onNavigate('tracker')}
+                className={`px-3 py-1.5 rounded-lg shrink-0 font-bold ${
+                  currentPage === 'tracker' ? 'bg-slate-900 text-white' : 'text-slate-600'
+                }`}
+              >
+                Track
+              </button>
+            </>
           )}
         </div>
       </div>

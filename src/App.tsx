@@ -75,6 +75,13 @@ export function App() {
     }
   };
 
+  // Automatically route logged-in users to their role-specific landing page
+  useEffect(() => {
+    if (user) {
+      setCurrentPage('dashboard');
+    }
+  }, [user?.id]);
+
   // Open Auth with specific config
   const openAuthWithConfig = (roleToSelect: UserRole = 'donor', mode: 'login' | 'register' = 'login') => {
     setAuthRole(roleToSelect);
@@ -93,14 +100,14 @@ export function App() {
 
       {/* Main Pages Container */}
       <main className="flex-1">
-        {/* PAGE 1: WELCOME & INTRO ("Pak Relief") */}
+        {/* PAGE 1: SIMPLE WELCOME HERO (Only for Unauthenticated/Public visitors) */}
         {currentPage === 'welcome' && (
           <WelcomePage
-            stats={stats}
-            featuredCampaign={campaigns[0]}
             onNavigate={(page) => setCurrentPage(page as AppPage)}
-            onSelectCampaign={(c) => setSelectedCampaign(c)}
-            onOpenAuth={() => openAuthWithConfig('donor', 'login')}
+            onOpenAuthWithRole={(r, mode) => openAuthWithConfig(r, mode)}
+            onQuickTrackOrder={(orderNum) => {
+              setCurrentPage('tracker');
+            }}
           />
         )}
 
@@ -113,7 +120,7 @@ export function App() {
           />
         )}
 
-        {/* PAGE 3: HOW IT WORKS STEP-BY-STEP */}
+        {/* PAGE 3: HOW IT WORKS STEP-BY-STEP (Public Traceability Reference) */}
         {currentPage === 'how-it-works' && (
           <HowItWorksPage
             onNavigate={(page) => setCurrentPage(page as AppPage)}
@@ -165,8 +172,10 @@ export function App() {
             ) : role === 'donor' ? (
               <DonorDashboard
                 orders={orders}
+                campaigns={campaigns}
                 onViewReceipt={(o) => setReceiptOrder(o)}
                 onExploreCampaigns={() => setCurrentPage('disasters')}
+                onSelectCampaign={(c) => setSelectedCampaign(c)}
               />
             ) : role === 'ngo' ? (
               <NgoDashboard
@@ -206,24 +215,17 @@ export function App() {
 
           <div className="flex flex-wrap items-center gap-4 text-slate-300">
             <button 
-              onClick={() => setCurrentPage('welcome')} 
+              onClick={() => setCurrentPage(user ? 'dashboard' : 'welcome')} 
               className="hover:text-white cursor-pointer"
             >
-              Welcome
+              {user ? 'My Dashboard' : 'Welcome'}
             </button>
             <span>&bull;</span>
             <button 
               onClick={() => setCurrentPage('disasters')} 
               className="hover:text-white cursor-pointer"
             >
-              Operations
-            </button>
-            <span>&bull;</span>
-            <button 
-              onClick={() => setCurrentPage('how-it-works')} 
-              className="hover:text-white cursor-pointer"
-            >
-              How It Works
+              Relief Needs
             </button>
             <span>&bull;</span>
             <button 
@@ -231,13 +233,6 @@ export function App() {
               className="hover:text-white cursor-pointer"
             >
               Track Orders
-            </button>
-            <span>&bull;</span>
-            <button 
-              onClick={() => setCurrentPage('portals')} 
-              className="hover:text-white cursor-pointer"
-            >
-              Portals
             </button>
           </div>
         </div>

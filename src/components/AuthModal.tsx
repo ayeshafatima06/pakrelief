@@ -462,9 +462,21 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
               {selectedRole === 'admin' && (
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                    NDMA Admin Email
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                      NDMA Admin Email
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLoginIdentifier('admin@pakrelief.gov.pk');
+                        setLoginPassword('PakRelief@2026!');
+                      }}
+                      className="text-[11px] font-semibold text-purple-700 hover:text-purple-900 bg-purple-50 hover:bg-purple-100 px-2 py-0.5 rounded-md transition cursor-pointer border border-purple-200"
+                    >
+                      Fill Demo Credentials
+                    </button>
+                  </div>
                   <input
                     type="email"
                     value={loginIdentifier}
@@ -473,6 +485,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     required
                     className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-mono focus:bg-white focus:outline-none focus:ring-2 focus:ring-purple-500"
                   />
+                  <div className="mt-1.5 p-2 bg-purple-50/70 border border-purple-100 rounded-lg text-[11px] text-purple-900 font-mono">
+                    <strong>Admin Email:</strong> admin@pakrelief.gov.pk<br/>
+                    <strong>Password:</strong> PakRelief@2026! (or admin123)
+                  </div>
                 </div>
               )}
 

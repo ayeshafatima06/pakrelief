@@ -1,16 +1,12 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   X, 
-  ShieldCheck, 
-  Lock, 
-  Smartphone, 
-  CheckCircle2, 
+  Lock,
   AlertCircle, 
   Loader2, 
-  Sparkles,
+  Clock,
   CreditCard
 } from 'lucide-react';
-import confetti from 'canvas-confetti';
 import { useCart } from '../context/CartContext';
 import { useAuth } from '../context/AuthContext';
 import api from '../lib/api';
@@ -30,71 +26,42 @@ export const JazzCashModal: React.FC<JazzCashModalProps> = ({
   const { items, totalAmount, clearCart } = useCart();
   const { user } = useAuth();
 
-  const [mobileNumber, setMobileNumber] = useState('03001234567');
-  const [cnicDigits, setCnicDigits] = useState('123456');
-  const [mpin, setMpin] = useState('1234');
   const [isProcessing, setIsProcessing] = useState(false);
   const [verificationStep, setVerificationStep] = useState<string>('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [requestId, setRequestId] = useState('');
+
+  useEffect(() => {
+    if (isOpen) {
+      setRequestId(globalThis.crypto?.randomUUID?.() || `demo-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
-
-  const handleFillSandboxData = () => {
-    setMobileNumber('03001234567');
-    setCnicDigits('123456');
-    setMpin('1234');
-    setErrorMessage(null);
-  };
 
   const handlePayment = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
-
-    // Basic format checks
-    const cleanMobile = mobileNumber.replace(/\D/g, '');
-    if (cleanMobile.length !== 11 || !cleanMobile.startsWith('03')) {
-      setErrorMessage('Please provide a valid 11-digit Pakistani mobile number starting with 03.');
-      return;
-    }
-
-    if (!mpin || mpin.length < 4) {
-      setErrorMessage('Please enter a 4-digit JazzCash Sandbox MPIN.');
+    if (!user || user.role !== 'donor') {
+      setErrorMessage('Sign in with a donor account to create a sandbox order reservation.');
       return;
     }
 
     setIsProcessing(true);
-    setVerificationStep('Connecting to JazzCash Sandbox Gateway...');
+    setVerificationStep('Checking current catalog prices and inventory...');
 
     try {
-      await new Promise(r => setTimeout(r, 600));
-      setVerificationStep('Authenticating merchant signature & digital certificate...');
-
-      await new Promise(r => setTimeout(r, 600));
-      setVerificationStep('Independent backend verification of funds and creating orders...');
-
-      // Call independent backend verification endpoint
       const response = await api.post('/payments/verify-jazzcash', {
-        cartItems: items,
-        donorId: user?.id || 'usr-donor-1',
-        donorName: user?.name || 'Verified Donor',
-        donorEmail: user?.email || 'donor@pakrelief.gov.pk',
-        donorCnic: user?.cnic || '35201-1234567-1',
-        paymentDetails: {
-          mobileNumber: cleanMobile,
-          cnic: cnicDigits,
-          mpin,
-          amount: totalAmount
-        }
+        requestId,
+        cartItems: items.map(item => ({
+          productId: item.productId,
+          requirementId: item.requirementId,
+          campaignId: item.campaignId,
+          quantity: item.quantity
+        }))
       });
 
       if (response.data.success) {
-        // Trigger celebratory confetti
-        confetti({
-          particleCount: 80,
-          spread: 70,
-          origin: { y: 0.6 }
-        });
-
         const createdOrders = response.data.orders;
         const gatewayRef = response.data.gatewayReference;
 
@@ -103,7 +70,7 @@ export const JazzCashModal: React.FC<JazzCashModalProps> = ({
         onClose();
         onSuccess(createdOrders, gatewayRef);
       } else {
-        throw new Error(response.data.error || 'Gateway returned verification failure');
+        throw new Error(response.data.error || 'Could not create the sandbox reservation.');
       }
     } catch (err: any) {
       setIsProcessing(false);
@@ -131,24 +98,24 @@ export const JazzCashModal: React.FC<JazzCashModalProps> = ({
 
           <div className="flex items-center gap-2 mb-1">
             <span className="bg-amber-400 text-slate-950 text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded font-mono">
-              SANDBOX GATEWAY
+              DEMO ONLY
             </span>
             <span className="text-white/80 text-xs flex items-center gap-1">
-              <Lock className="w-3 h-3" />
-              256-bit Encrypted
+              <Clock className="w-3 h-3" />
+              No payment processed
             </span>
           </div>
 
           <h3 className="text-xl font-black tracking-tight flex items-center gap-2">
-            <span>JazzCash Online Checkout</span>
+            <span>JazzCash Sandbox Demo</span>
           </h3>
 
           <p className="text-xs text-red-100 mt-1">
-            Official Non-Profit Disaster Relief Integration
+            This demo does not connect to JazzCash or verify payments.
           </p>
 
           <div className="mt-3 pt-3 border-t border-red-600/60 flex items-center justify-between">
-            <span className="text-xs text-red-100 font-medium">Relief Order Total:</span>
+            <span className="text-xs text-red-100 font-medium">Estimated cart total:</span>
             <span className="text-xl font-black font-mono text-white">
               PKR {totalAmount.toLocaleString()}
             </span>
@@ -180,84 +147,20 @@ export const JazzCashModal: React.FC<JazzCashModalProps> = ({
                   {verificationStep}
                 </p>
               </div>
-              <p className="text-[11px] text-slate-400 max-w-xs mx-auto">
-                Independent backend verification ensures zero transaction spoofing.
-              </p>
+              <p className="text-[11px] text-slate-400 max-w-xs mx-auto">No payment credentials are collected or sent.</p>
             </div>
           ) : (
             <form onSubmit={handlePayment} className="space-y-4">
-              {/* Quick Fill Test Credentials */}
               <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs flex items-center justify-between">
                 <div>
-                  <span className="font-bold text-amber-900 block">Sandbox Demo Mode</span>
-                  <span className="text-amber-700 text-[11px]">Click to prefill test credentials</span>
+                  <span className="font-bold text-amber-900 block">No gateway transaction will occur</span>
+                  <span className="text-amber-700 text-[11px]">Creates a pending inventory reservation for 15 minutes only.</span>
                 </div>
-                <button
-                  type="button"
-                  onClick={handleFillSandboxData}
-                  className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded font-bold text-xs flex items-center gap-1 shadow-xs transition"
-                >
-                  <Sparkles className="w-3 h-3" />
-                  Auto-Fill
-                </button>
               </div>
 
-              {/* Mobile Number */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                  JazzCash Mobile Account Number
-                </label>
-                <div className="relative">
-                  <Smartphone className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-                  <input
-                    type="tel"
-                    value={mobileNumber}
-                    onChange={e => setMobileNumber(e.target.value)}
-                    placeholder="03001234567"
-                    required
-                    className="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-mono focus:bg-white focus:outline-none focus:ring-2 focus:ring-red-500 transition"
-                  />
-                </div>
-                <span className="text-[11px] text-slate-400 mt-0.5 block">Format: 03XXXXXXXXX (11 digits)</span>
-              </div>
-
-              {/* CNIC Digits */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                  CNIC Verification (Last 6 Digits)
-                </label>
-                <input
-                  type="text"
-                  maxLength={6}
-                  value={cnicDigits}
-                  onChange={e => setCnicDigits(e.target.value)}
-                  placeholder="123456"
-                  required
-                  className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-mono tracking-widest focus:bg-white focus:outline-none focus:ring-2 focus:ring-red-500 transition"
-                />
-              </div>
-
-              {/* MPIN */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                  4-Digit Sandbox MPIN
-                </label>
-                <input
-                  type="password"
-                  maxLength={4}
-                  value={mpin}
-                  onChange={e => setMpin(e.target.value)}
-                  placeholder="****"
-                  required
-                  className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-mono tracking-widest text-center focus:bg-white focus:outline-none focus:ring-2 focus:ring-red-500 transition"
-                />
-                <span className="text-[11px] text-slate-400 mt-0.5 block">Test sandbox MPIN: 1234</span>
-              </div>
-
-              {/* Security Seal */}
               <div className="pt-2 flex items-center justify-center gap-1.5 text-xs text-slate-500 font-medium">
-                <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                <span>Zero Trust Architecture &bull; Backend Validated</span>
+                <AlertCircle className="w-4 h-4 text-amber-600" />
+                <span>Server reprices items; reservation is not a payment.</span>
               </div>
 
               {/* Submit Button */}
@@ -265,8 +168,8 @@ export const JazzCashModal: React.FC<JazzCashModalProps> = ({
                 type="submit"
                 className="w-full py-3 px-4 rounded-xl bg-red-700 hover:bg-red-800 text-white font-bold text-sm flex items-center justify-center gap-2 shadow-md transition"
               >
-                <Lock className="w-4 h-4" />
-                <span>Confirm & Authorize Payment (PKR {totalAmount.toLocaleString()})</span>
+                <CreditCard className="w-4 h-4" />
+                <span>Create Pending Demo Order</span>
               </button>
             </form>
           )}

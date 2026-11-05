@@ -17,13 +17,20 @@ import {
   Users,
   RefreshCw
 } from 'lucide-react';
-import { User, Transaction, Campaign, Order } from '../types';
+import { User, Transaction, Campaign, Order, SocialPlatform, SocialPlatformPublication } from '../types';
 import api from '../lib/api';
 
 interface AdminDashboardProps {
   campaigns: Campaign[];
   orders: Order[];
   onRefresh: () => void;
+}
+
+interface SocialPublicationRow {
+  campaignId: string;
+  title: string;
+  approvalStatus: string;
+  socialPublishing: Partial<Record<SocialPlatform, SocialPlatformPublication>> | null;
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({ 
@@ -33,6 +40,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'approvals' | 'transactions' | 'overview'>('approvals');
   const [users, setUsers] = useState<User[]>([]);
+  const [pendingCampaigns, setPendingCampaigns] = useState<Campaign[]>([]);
+  const [socialPublicationRows, setSocialPublicationRows] = useState<SocialPublicationRow[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
@@ -44,12 +53,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const fetchAdminData = async () => {
     setIsLoading(true);
     try {
-      const [usersRes, txRes] = await Promise.all([
+      const [usersRes, txRes, campaignsRes, socialRes] = await Promise.all([
         api.get('/admin/pending-users'),
-        api.get('/transactions')
+        api.get('/transactions'),
+        api.get('/admin/pending-campaigns'),
+        api.get('/admin/social-publications')
       ]);
       setUsers(usersRes.data);
       setTransactions(txRes.data);
+      setPendingCampaigns(campaignsRes.data.pendingCampaigns || []);
+      setSocialPublicationRows(socialRes.data.campaigns || []);
     } catch (err: any) {
       console.error('Error fetching admin data', err);
     } finally {
@@ -92,6 +105,41 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       }
     } catch (err: any) {
       setActionError('Failed to update transaction status.');
+    }
+  };
+
+  const handleReviewCampaign = async (campaignId: string, status: 'approved' | 'rejected') => {
+    setActionError(null);
+    try {
+      const res = await api.patch('/admin/review-campaign', {
+        campaignId,
+        status,
+        notes: status === 'approved'
+          ? 'Campaign approved by NDMA administrator after verification.'
+          : 'Campaign rejected by NDMA administrator pending correction.'
+      });
+
+      if (res.data.success) {
+        setActionSuccess(`Campaign ${status === 'approved' ? 'approved' : 'rejected'} successfully.`);
+        fetchAdminData();
+        onRefresh();
+      }
+    } catch (err: any) {
+      setActionError(err.response?.data?.error || 'Campaign review action failed.');
+    }
+  };
+
+  const handleRetrySocialPublication = async (campaignId: string, platform: SocialPlatform) => {
+    setActionError(null);
+    try {
+      const response = await api.post(`/admin/campaigns/${encodeURIComponent(campaignId)}/social-publications/${platform}/retry`);
+      const publication = response.data.socialPublishing?.[platform] as SocialPlatformPublication | undefined;
+      setActionSuccess(publication?.status === 'published'
+        ? `${platform} publishing was confirmed by Meta.`
+        : `${platform} retry finished with status: ${publication?.status || 'unknown'}.`);
+      fetchAdminData();
+    } catch (err: any) {
+      setActionError(err.response?.data?.error || `Could not retry ${platform} publication.`);
     }
   };
 
@@ -216,6 +264,143 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {/* TAB 1: APPROVALS QUEUE */}
       {activeTab === 'approvals' && (
         <div className="space-y-6">
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-bold uppercase tracking-wider text-slate-700 flex items-center gap-2">
+                <FileText className="w-4 h-4 text-violet-600" />
+                <span>Pending Campaign Reviews ({pendingCampaigns.length})</span>
+              </h3>
+              <span className="text-xs text-slate-500">Administrative public release approval queue</span>
+            </div>
+
+            {pendingCampaigns.length === 0 ? (
+              <div className="bg-white rounded-2xl border border-slate-200 p-6 text-center text-slate-500 text-xs">
+                No campaigns are awaiting approval.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {pendingCampaigns.map(campaign => (
+                  <div key={campaign.id} className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs space-y-3">
+                    <div className="flex gap-3">
+                      <img
+                        src={campaign.photoUrl}
+                        alt={campaign.disasterName}
+                        className="w-20 h-20 object-cover rounded-xl border border-slate-200"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <span className="text-[10px] font-bold uppercase bg-violet-100 text-violet-800 px-2 py-0.5 rounded font-mono">
+                          Pending Review
+                        </span>
+                        <h4 className="font-bold text-sm text-slate-900 mt-1">{campaign.disasterName}</h4>
+                        <p className="text-xs text-slate-500 mt-0.5">{campaign.location}</p>
+                        <p className="text-[11px] text-slate-600 mt-2 line-clamp-3">{campaign.description}</p>
+                      </div>
+                    </div>
+
+                    <div className="text-[11px] text-slate-600 bg-slate-50 border border-slate-100 rounded-xl p-3 space-y-1">
+                      <div>NGO: <strong>{campaign.ngoName}</strong></div>
+                      <div>Type: <strong>{campaign.disasterType}</strong></div>
+                      <div>Province: <strong>{campaign.province}</strong></div>
+                      <div>Target Beneficiaries: <strong>{campaign.targetBeneficiaries}</strong></div>
+                      <div>ID: <strong className="font-mono">{campaign.id}</strong></div>
+                    </div>
+
+                    <div className="flex gap-2 pt-1">
+                      <button
+                        onClick={() => handleReviewCampaign(campaign.id, 'approved')}
+                        className="flex-1 py-1.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1 shadow-xs transition"
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        <span>Approve</span>
+                      </button>
+
+                      <button
+                        onClick={() => handleReviewCampaign(campaign.id, 'rejected')}
+                        className="py-1.5 px-3 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg text-xs font-bold transition"
+                      >
+                        Reject
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <section aria-labelledby="social-publishing-heading" className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 id="social-publishing-heading" className="text-sm font-bold uppercase tracking-wider text-slate-700">
+                Social Media Publishing
+              </h3>
+              <span className="text-xs text-slate-500">Approved campaigns only</span>
+            </div>
+            {socialPublicationRows.length === 0 ? (
+              <div className="bg-white rounded-xl border border-slate-200 p-5 text-center text-xs text-slate-500">
+                No approved campaigns are available for publishing.
+              </div>
+            ) : (
+              <div className="overflow-x-auto bg-white border border-slate-200 rounded-xl">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 uppercase">
+                    <tr>
+                      <th className="p-3">Campaign</th>
+                      <th className="p-3">Approval</th>
+                      <th className="p-3">Facebook</th>
+                      <th className="p-3">Instagram</th>
+                      <th className="p-3">WhatsApp</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {socialPublicationRows.map(row => (
+                      <tr key={row.campaignId} className="align-top">
+                        <td className="p-3 min-w-48">
+                          <div className="font-bold text-slate-900">{row.title}</div>
+                          <div className="text-[10px] text-slate-500 font-mono">{row.campaignId}</div>
+                        </td>
+                        <td className="p-3 font-semibold text-emerald-700">{row.approvalStatus}</td>
+                        {(['facebook', 'instagram', 'whatsapp'] as SocialPlatform[]).map(platform => {
+                          const publication = row.socialPublishing?.[platform];
+                          const state = publication?.status || 'pending';
+                          const retryAvailable = state === 'failed' && publication?.retryable !== false &&
+                            (!publication?.retryAfter || publication.retryAfter <= Date.now());
+                          return (
+                            <td key={platform} className="p-3 min-w-44">
+                              <div className={`font-bold ${state === 'published' ? 'text-emerald-700' : state === 'failed' ? 'text-rose-700' : 'text-amber-700'}`}>
+                                {platform === 'whatsapp' && state === 'published' ? 'Accepted by Meta' : state}
+                              </div>
+                              {publication?.error && <p className="mt-1 text-[10px] text-rose-700 break-words">{publication.error}</p>}
+                              {publication?.attempts !== undefined && (
+                                <p className="mt-1 text-[10px] text-slate-500">
+                                  Attempts: {publication.attempts}
+                                  {platform === 'whatsapp' && ` · Accepted: ${publication.acceptedCount || 0} · Failed: ${publication.failedCount || 0}`}
+                                </p>
+                              )}
+                              {state === 'failed' && publication?.retryable === false && (
+                                <p className="mt-1 text-[10px] text-amber-700">Manual platform verification is required before another attempt.</p>
+                              )}
+                              {publication?.retryAfter && publication.retryAfter > Date.now() && (
+                                <p className="mt-1 text-[10px] text-slate-500">Retry after {new Date(publication.retryAfter).toLocaleString()}</p>
+                              )}
+                              {retryAvailable && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleRetrySocialPublication(row.campaignId, platform)}
+                                  className="mt-2 px-2.5 py-1 bg-slate-900 hover:bg-slate-700 text-white rounded-md text-[10px] font-bold"
+                                >
+                                  Retry
+                                </button>
+                              )}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+
           {/* NGO Pending Queue */}
           <div>
             <div className="flex items-center justify-between mb-3">
@@ -364,7 +549,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
           <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between text-xs">
             <span className="font-bold text-slate-700 uppercase tracking-wider">
-              Independent Gateway Verification Log (JazzCash Sandbox)
+              JazzCash Sandbox Demo Records · No Gateway Verification
             </span>
             <span className="text-slate-500 font-mono">
               Total Logged: {transactions.length} Transactions
@@ -379,7 +564,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <th className="p-3">Order Number</th>
                   <th className="p-3">Donor Name</th>
                   <th className="p-3">Amount</th>
-                  <th className="p-3">Backend Verification</th>
+                  <th className="p-3">Demo Payment Status</th>
                   <th className="p-3">Date</th>
                   <th className="p-3">Audit Action</th>
                 </tr>
@@ -394,9 +579,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       PKR {tx.amount.toLocaleString()}
                     </td>
                     <td className="p-3">
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">
-                        <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                        {tx.verifiedStatus}
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${tx.status === 'Verified' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
+                        {tx.status === 'Verified' && <CheckCircle2 className="w-3 h-3 text-emerald-600" />}
+                        {tx.status === 'Pending' ? 'Demo · Pending' : tx.status || 'Unverified'}
                       </span>
                     </td>
                     <td className="p-3 text-slate-500 font-mono text-[11px]">

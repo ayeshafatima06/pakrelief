@@ -158,7 +158,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                 <span className="font-mono font-semibold text-emerald-700">PKR 0</span>
               </div>
               <div className="pt-2 border-t border-slate-200 flex justify-between text-sm font-black text-slate-900">
-                <span>Total Amount Payable:</span>
+                <span>Estimated Cart Amount:</span>
                 <span className="font-mono text-emerald-700 text-base">
                   PKR {totalAmount.toLocaleString()}
                 </span>
@@ -168,7 +168,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
             {/* Sandbox Guarantee Badge */}
             <div className="p-2 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center gap-2 text-[11px] text-emerald-900">
               <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-              <span>Independent backend payment verification with JazzCash Sandbox.</span>
+                <span>Sandbox demo only. No payment is processed; server prices the pending reservation.</span>
             </div>
 
             {/* Action */}
@@ -180,7 +180,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
               className="w-full py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm flex items-center justify-center gap-2 shadow-md transition"
             >
               <CreditCard className="w-4 h-4" />
-              <span>Proceed to JazzCash Sandbox Checkout</span>
+              <span>Create JazzCash Demo Reservation</span>
               <ArrowRight className="w-4 h-4" />
             </button>
 

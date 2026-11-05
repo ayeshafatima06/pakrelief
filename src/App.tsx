@@ -65,7 +65,7 @@ export function App() {
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [user?.id]);
 
   // Handle successful checkout
   const handlePaymentSuccess = (createdOrders: Order[], gatewayRef: string) => {

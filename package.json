@@ -8,6 +8,7 @@
     "start": "tsx server.ts",
     "build": "vite build",
     "preview": "vite preview",
+    "test": "tsx --test tests/campaignWorkflow.test.ts tests/socialMediaService.test.ts tests/commerceService.test.ts",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit"
   },

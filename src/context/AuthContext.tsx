@@ -1,13 +1,13 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { 
   signInWithEmailAndPassword, 
+  signInWithCustomToken,
   createUserWithEmailAndPassword, 
   signOut, 
   onAuthStateChanged,
   User as FirebaseUser
 } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
-import { auth, db } from '../lib/firebase';
+import { auth } from '../lib/firebase';
 import { UserProfile, UserRole, VerificationStatus } from '../types';
 import api from '../lib/api';
 
@@ -43,36 +43,38 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
-  // Sync profile from Firestore whenever Firebase Auth state changes
-  const fetchProfileForUid = async (uid: string): Promise<UserProfile | null> => {
+  // Load the trusted profile through the API whenever Firebase Auth changes
+  const fetchProfileForUid = async (): Promise<UserProfile | null> => {
     try {
-      const snap = await getDoc(doc(db, 'users', uid));
-      if (snap.exists()) {
-        const profile = { ...snap.data(), id: snap.id } as UserProfile;
+      const response = await api.get('/auth/profile');
+      if (response.data.success && response.data.user) {
+        const profile = response.data.user as UserProfile;
         setUser(profile);
         return profile;
       }
     } catch (err) {
-      console.warn('Could not fetch Firestore user profile:', err);
+      console.warn('Could not fetch authenticated user profile:', err);
     }
+    setUser(null);
     return null;
   };
 
-  useEffect(() => {
-    // Check if user session was stored locally from direct auth
-    const storedUser = localStorage.getItem('pakrelief_session_user');
-    if (storedUser) {
-      try {
-        const parsed = JSON.parse(storedUser);
-        setUser(parsed);
-      } catch (_) {}
+  const completeFirebaseSignIn = async (customToken: string): Promise<boolean> => {
+    const credential = await signInWithCustomToken(auth, customToken);
+    const profile = await fetchProfileForUid();
+    if (!profile) {
+      await signOut(auth);
+      return false;
     }
+    return true;
+  };
 
+  useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
       setFirebaseUser(fbUser);
       if (fbUser) {
-        await fetchProfileForUid(fbUser.uid);
-      } else if (!localStorage.getItem('pakrelief_session_user')) {
+        await fetchProfileForUid();
+      } else {
         setUser(null);
       }
       setIsLoading(false);
@@ -83,9 +85,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const refreshProfile = async () => {
     if (firebaseUser) {
-      await fetchProfileForUid(firebaseUser.uid);
-    } else if (user?.id) {
-      await fetchProfileForUid(user.id);
+      await fetchProfileForUid();
+    } else {
+      setUser(null);
     }
   };
 
@@ -113,8 +115,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       // 2. Authenticate against Firebase Authentication with email & password, falling back to direct auth if operation-not-allowed
       let cred: any = null;
-      let usedDirect = false;
-
       try {
         cred = await signInWithEmailAndPassword(auth, registeredEmail, password);
       } catch (authErr: any) {
@@ -127,12 +127,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         ) {
           try {
             const directRes = await api.post('/auth/login-direct', { identifier, role, password });
-            if (directRes.data.success && directRes.data.user) {
-              const u = directRes.data.user;
-              setUser(u);
-              localStorage.setItem('pakrelief_session_user', JSON.stringify(u));
+            if (directRes.data.success && directRes.data.customToken) {
+              const signedIn = await completeFirebaseSignIn(directRes.data.customToken);
               setIsLoading(false);
-              return { success: true };
+              return signedIn
+                ? { success: true }
+                : { success: false, error: 'Your account was authenticated, but its profile could not be loaded. Contact support.' };
             }
           } catch (directErr: any) {
             setIsLoading(false);
@@ -147,11 +147,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (role === 'admin') {
           try {
             const directAdmin = await api.post('/auth/login-direct', { identifier, role, password });
-            if (directAdmin.data.success) {
-              setUser(directAdmin.data.user);
-              localStorage.setItem('pakrelief_session_user', JSON.stringify(directAdmin.data.user));
+            if (directAdmin.data.success && directAdmin.data.customToken) {
+              const signedIn = await completeFirebaseSignIn(directAdmin.data.customToken);
               setIsLoading(false);
-              return { success: true };
+              return signedIn
+                ? { success: true }
+                : { success: false, error: 'Your account was authenticated, but its profile could not be loaded. Contact support.' };
             }
           } catch (_) {}
         }
@@ -166,24 +167,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       // 3. Retrieve user profile from Firestore if signed in via Firebase Auth
       if (cred?.user) {
-        const profile = await fetchProfileForUid(cred.user.uid);
+        const profile = await fetchProfileForUid();
         if (!profile) {
-          const newProfile: UserProfile = {
-            id: cred.user.uid,
-            firebaseUid: cred.user.uid,
-            email: registeredEmail,
-            name: lookupRes.data.name || registeredEmail,
-            role,
-            contact: '',
-            emailVerified: true,
-            verificationStatus: role === 'admin' || role === 'donor' ? 'active' : 'pending',
-            createdAt: Date.now(),
-            identifier
-          };
-          setUser(newProfile);
-          localStorage.setItem('pakrelief_session_user', JSON.stringify(newProfile));
-        } else {
-          localStorage.setItem('pakrelief_session_user', JSON.stringify(profile));
+          await signOut(auth);
+          setIsLoading(false);
+          return { success: false, error: 'Your Firebase account is valid, but no PakRelief profile exists. Contact support to restore the profile.' };
         }
       }
 
@@ -236,25 +224,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
 
         if (res.data.success) {
-          setUser(res.data.user);
-          localStorage.setItem('pakrelief_session_user', JSON.stringify(res.data.user));
+          await fetchProfileForUid();
           setIsLoading(false);
           return { success: true };
         }
       } catch (authErr: any) {
-        // If Firebase Auth throws operation-not-allowed (Email/Password not yet toggled on in console),
-        // seamlessly fall back to secure direct registration in Firestore!
+        // Migrate direct registrations through the server when client email/password auth is unavailable.
         if (
           authErr.code === 'auth/operation-not-allowed' || 
           authErr.code === 'auth/admin-restricted-operation'
         ) {
-          console.info('[PakRelief] Firebase Email/Password provider not enabled in console. Using direct registration in Firestore.');
+          console.info('[PakRelief] Client email/password auth is unavailable. Requesting server-side Firebase account migration.');
           const directRes = await api.post('/auth/register-direct', data);
-          if (directRes.data.success && directRes.data.user) {
-            setUser(directRes.data.user);
-            localStorage.setItem('pakrelief_session_user', JSON.stringify(directRes.data.user));
+          if (directRes.data.success && directRes.data.customToken) {
+            const signedIn = await completeFirebaseSignIn(directRes.data.customToken);
             setIsLoading(false);
-            return { success: true };
+            return signedIn
+              ? { success: true }
+              : { success: false, error: 'Your account was created, but its profile could not be loaded. Contact support.' };
           } else {
             setIsLoading(false);
             return { success: false, error: directRes.data.error || 'Failed to complete registration.' };
@@ -283,7 +270,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (e) {
       console.warn('Sign out error:', e);
     }
-    localStorage.removeItem('pakrelief_session_user');
     setUser(null);
     setFirebaseUser(null);
   };

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   HeartHandshake, 
   Package, 
@@ -11,10 +11,12 @@ import {
   Filter,
   Calendar,
   ShieldCheck,
-  ArrowUpRight
+  ArrowUpRight,
+  AlertTriangle
 } from 'lucide-react';
 import { Order, Campaign } from '../types';
 import { useAuth } from '../context/AuthContext';
+import api from '../lib/api';
 
 interface DonorDashboardProps {
   orders: Order[];
@@ -31,15 +33,45 @@ export const DonorDashboard: React.FC<DonorDashboardProps> = ({
   onExploreCampaigns,
   onSelectCampaign
 }) => {
-  const { user } = useAuth();
+  const { user, refreshProfile } = useAuth();
   const [activeTab, setActiveTab] = useState<'campaigns' | 'orders'>('campaigns');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [whatsappPhone, setWhatsappPhone] = useState(user?.whatsappPhone || user?.contact || '');
+  const [whatsappOptIn, setWhatsappOptIn] = useState(user?.whatsappOptIn === true);
+  const [isSavingWhatsAppConsent, setIsSavingWhatsAppConsent] = useState(false);
+  const [whatsappConsentMessage, setWhatsappConsentMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    setWhatsappPhone(user?.whatsappPhone || user?.contact || '');
+    setWhatsappOptIn(user?.whatsappOptIn === true);
+  }, [user?.id, user?.whatsappPhone, user?.contact, user?.whatsappOptIn]);
+
+  const handleSaveWhatsAppConsent = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setWhatsappConsentMessage(null);
+    setIsSavingWhatsAppConsent(true);
+    try {
+      await api.patch('/auth/whatsapp-consent', {
+        optIn: whatsappOptIn,
+        ...(whatsappOptIn ? { phone: whatsappPhone } : {})
+      });
+      await refreshProfile();
+      setWhatsappConsentMessage(whatsappOptIn
+        ? 'WhatsApp campaign notifications enabled.'
+        : 'WhatsApp campaign notifications disabled.');
+    } catch (error: any) {
+      setWhatsappConsentMessage(error.response?.data?.error || 'Could not update WhatsApp preferences.');
+    } finally {
+      setIsSavingWhatsAppConsent(false);
+    }
+  };
 
   const myOrders = orders.filter(o => o.donorId === user?.id || o.donorEmail === user?.email);
+  const confirmedOrders = myOrders.filter(o => ['Payment Confirmed', 'Dispatched', 'Delivered', 'NGO Confirmed'].includes(o.status));
 
-  const totalDonated = myOrders.reduce((acc, o) => acc + o.amount, 0);
-  const totalItemsFunded = myOrders.reduce(
+  const totalDonated = confirmedOrders.reduce((acc, o) => acc + o.amount, 0);
+  const totalItemsFunded = confirmedOrders.reduce(
     (acc, o) => acc + o.items.reduce((s, it) => s + it.quantity, 0), 
     0
   );
@@ -57,6 +89,27 @@ export const DonorDashboard: React.FC<DonorDashboardProps> = ({
 
   const getStatusBadge = (status: Order['status']) => {
     switch (status) {
+      case 'Payment Pending':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+            <Clock className="w-3.5 h-3.5 text-amber-600" />
+            Demo Reservation Pending
+          </span>
+        );
+      case 'Payment Expired':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold rounded-full bg-slate-100 text-slate-700 border border-slate-200">
+            <Clock className="w-3.5 h-3.5 text-slate-500" />
+            Reservation Expired
+          </span>
+        );
+      case 'Paid':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold rounded-full bg-slate-100 text-slate-700 border border-slate-200">
+            <AlertTriangle className="w-3.5 h-3.5 text-slate-500" />
+            Legacy status · payment unverified
+          </span>
+        );
       case 'NGO Confirmed':
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
@@ -146,6 +199,39 @@ export const DonorDashboard: React.FC<DonorDashboardProps> = ({
           </div>
         </div>
       </div>
+
+      <form onSubmit={handleSaveWhatsAppConsent} className="bg-white border border-slate-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-end gap-3">
+        <div className="flex-1 space-y-3">
+          <label className="flex items-start gap-2 text-xs text-slate-700">
+            <input
+              type="checkbox"
+              checked={whatsappOptIn}
+              onChange={event => setWhatsappOptIn(event.target.checked)}
+              className="mt-0.5 accent-emerald-600"
+            />
+            <span>I agree to receive approved campaign announcements via WhatsApp. I can opt out at any time.</span>
+          </label>
+          <label className="block text-[11px] font-semibold text-slate-600">
+            WhatsApp number
+            <input
+              type="tel"
+              value={whatsappPhone}
+              onChange={event => setWhatsappPhone(event.target.value)}
+              placeholder="+92 300 1234567"
+              autoComplete="tel"
+              className="mt-1 block w-full sm:max-w-xs px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono"
+            />
+          </label>
+          {whatsappConsentMessage && <p role="status" className="text-xs text-slate-600">{whatsappConsentMessage}</p>}
+        </div>
+        <button
+          type="submit"
+          disabled={isSavingWhatsAppConsent}
+          className="px-4 py-2 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white rounded-lg text-xs font-bold"
+        >
+          {isSavingWhatsAppConsent ? 'Saving…' : 'Save preferences'}
+        </button>
+      </form>
 
       {/* Role Landing Tabs */}
       <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
@@ -263,7 +349,7 @@ export const DonorDashboard: React.FC<DonorDashboardProps> = ({
                 <Filter className="w-3.5 h-3.5" />
                 Status:
               </span>
-              {['all', 'Payment Confirmed', 'Dispatched', 'Delivered', 'NGO Confirmed'].map(st => (
+              {['all', 'Payment Pending', 'Payment Expired', 'Paid', 'Payment Confirmed', 'Dispatched', 'Delivered', 'NGO Confirmed'].map(st => (
                 <button
                   key={st}
                   onClick={() => setStatusFilter(st)}
@@ -330,7 +416,9 @@ export const DonorDashboard: React.FC<DonorDashboardProps> = ({
 
                 <div className="flex items-center gap-3">
                   <div className="text-right">
-                    <span className="text-[11px] text-slate-400 block font-medium">Amount Paid</span>
+                    <span className="text-[11px] text-slate-400 block font-medium">
+                      {order.status === 'Payment Pending' ? 'Estimated reservation' : order.status === 'Payment Expired' ? 'Expired reservation' : order.status === 'Paid' ? 'Legacy unverified amount' : 'Amount Paid'}
+                    </span>
                     <span className="text-base font-black font-mono text-emerald-700">
                       PKR {order.amount.toLocaleString()}
                     </span>

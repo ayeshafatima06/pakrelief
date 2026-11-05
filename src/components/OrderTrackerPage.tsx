@@ -40,7 +40,10 @@ export const OrderTrackerPage: React.FC<OrderTrackerPageProps> = ({
     // 1: Need & Order Placed
     if (stepNumber === 1) return 'completed';
     // 2: Payment Verified
-    if (stepNumber === 2) return 'completed';
+    if (stepNumber === 2) {
+      if (order.status === 'Payment Pending' || order.status === 'Payment Expired' || order.status === 'Paid') return 'pending';
+      return 'completed';
+    }
     // 3: Dispatched
     if (stepNumber === 3) {
       if (['Dispatched', 'Delivered', 'NGO Confirmed'].includes(order.status)) return 'completed';
@@ -66,7 +69,7 @@ export const OrderTrackerPage: React.FC<OrderTrackerPageProps> = ({
           Relief Order Traceability Tracker
         </h1>
         <p className="text-xs sm:text-sm text-slate-600 mt-1">
-          Verify any order's journey from JazzCash payment to physical NGO camp delivery.
+          Track public order progress. Sandbox demo reservations are shown as pending, not paid.
         </p>
       </div>
 
@@ -135,7 +138,7 @@ export const OrderTrackerPage: React.FC<OrderTrackerPageProps> = ({
               className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold flex items-center gap-2 transition cursor-pointer self-start md:self-auto"
             >
               <Receipt className="w-3.5 h-3.5 text-emerald-400" />
-              <span>View Official Tax Receipt</span>
+              <span>{selectedOrder.status === 'Payment Pending' || selectedOrder.status === 'Payment Expired' || selectedOrder.status === 'Paid' ? 'View Order Reservation' : 'View Receipt'}</span>
             </button>
           </div>
 
@@ -161,10 +164,12 @@ export const OrderTrackerPage: React.FC<OrderTrackerPageProps> = ({
               <div className="p-4 rounded-2xl bg-emerald-50/70 border border-emerald-200">
                 <div className="flex items-center gap-2 text-xs font-bold text-emerald-800 mb-1">
                   <CreditCard className="w-4 h-4 text-emerald-600" />
-                  <span>2. Payment Verified</span>
+                  <span>{selectedOrder.status === 'Payment Pending' ? '2. Demo Reservation' : selectedOrder.status === 'Payment Expired' ? '2. Reservation Expired' : '2. Payment Status'}</span>
                 </div>
                 <p className="text-[11px] text-slate-600">
-                  Gateway Ref: <span className="font-mono font-bold text-slate-800">{selectedOrder.gatewayReference}</span>
+                  {selectedOrder.status === 'Payment Pending' || selectedOrder.status === 'Payment Expired' || selectedOrder.status === 'Paid'
+                    ? 'No payment was submitted or verified.'
+                    : <>Reference: <span className="font-mono font-bold text-slate-800">{selectedOrder.gatewayReference}</span></>}
                 </p>
               </div>
 

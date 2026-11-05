@@ -7,6 +7,7 @@ import {
   getUserById, 
   saveUser, 
   updateUser,
+  removeLegacyPassword,
   getIdentifierMapping, 
   saveIdentifierMapping,
   saveOtpRecord, 
@@ -19,20 +20,43 @@ import {
   saveSupplier, 
   updateSupplier,
   getCampaigns, 
+  getCampaignById,
   saveCampaign,
+  reviewCampaignTransaction,
+  claimSocialPlatformPublication,
+  updateSocialPlatformPublication,
+  getOptedInWhatsAppSupporters,
+  claimWhatsAppRecipient,
+  authorizeWhatsAppDispatch,
+  updateWhatsAppRecipientPublication,
+  reconcileStaleSocialPublication,
+  updateWhatsAppConsent,
   getRequirements, 
   saveRequirement, 
   updateRequirement,
   getProducts, 
+  getProductById,
   saveProduct,
+  updateProduct,
   getOrders, 
+  getOrderById,
   saveOrder, 
   updateOrder,
+  OrderTransitionError,
+  transitionOrderStatus,
+  createDemoPendingCheckout,
+  expirePendingDemoOrders,
+  getTransactionsByDonor,
   getTransactions, 
   saveTransaction
 } from './firestoreService';
 import { sendOtpEmail } from './emailService';
-import { setCustomClaim, verifyFirebaseIdToken } from './adminAuthService';
+import { assertFirebaseEmailAvailable, migrateLegacyUserToFirebaseAuth, setCustomClaim, verifyFirebaseIdToken } from './adminAuthService';
+import { AuthenticatedRequest, createAuthMiddleware } from './authMiddleware';
+import { createCampaignWorkflowRouter } from './campaignWorkflow';
+import { hasValidAdminCampaignApproval } from './campaignReviewPolicy';
+import { createSocialMediaService } from './socialMediaService';
+import { CheckoutValidationError, normalizeCheckoutLines } from './commerceService';
 import { 
   Campaign, 
   Requirement, 
@@ -49,6 +73,44 @@ app.use(express.json());
 
 import crypto from 'crypto';
 
+const provisionedAdminUids = new Set((process.env.PAKRELIEF_ADMIN_UIDS || '')
+  .split(',')
+  .map(uid => uid.trim())
+  .filter(Boolean));
+
+const { requireFirebaseIdentity, requireAuth, requireAdmin, requireDonor, requireNgo, requireSupplier } = createAuthMiddleware({
+  verifyToken: verifyFirebaseIdToken,
+  getUserById,
+  isAdminUid: uid => provisionedAdminUids.has(uid)
+});
+
+const optionalAuth: express.RequestHandler = (req, res, next) => {
+  if (!req.headers.authorization) {
+    next();
+    return;
+  }
+  requireAuth(req, res, next);
+};
+
+async function getApprovedSupplierForUser(userId: string): Promise<SupplierProfile | null> {
+  const suppliers = await getSuppliers();
+  return suppliers.find(supplier => supplier.linkedUserId === userId && supplier.status === 'approved') || null;
+}
+
+const socialMediaService = createSocialMediaService({
+  isAdminUid: uid => provisionedAdminUids.has(uid),
+  repository: {
+    getCampaign: getCampaignById,
+    claimPlatform: (campaignId, platform, retry, now, isAdminUid) =>
+      claimSocialPlatformPublication(campaignId, platform, retry, now, isAdminUid),
+    updatePlatform: updateSocialPlatformPublication,
+    getOptedInSupporters: getOptedInWhatsAppSupporters,
+    claimWhatsAppRecipient,
+    authorizeWhatsAppDispatch,
+    updateWhatsAppRecipient: updateWhatsAppRecipientPublication
+  }
+});
+
 export function hashPassword(password: string, salt?: string): { hash: string; salt: string } {
   const actualSalt = salt || crypto.randomBytes(16).toString('hex');
   const hash = crypto.pbkdf2Sync(password, actualSalt, 1000, 64, 'sha512').toString('hex');
@@ -61,12 +123,18 @@ export function verifyPassword(password: string, hash: string, salt: string): bo
 }
 
 // Initialize statutory admin identifier mapping in Firestore
-async function initStatutoryAdmin() {
+export async function initializeStatutoryAdmin(): Promise<void> {
   try {
     const adminEmail = 'admin@pakrelief.gov.pk';
     const adminUid = 'admin_ndma_root';
+    const existingUser = await getUserById(adminUid);
+    const bootstrapPassword = process.env.PAKRELIEF_ADMIN_BOOTSTRAP_PASSWORD;
+    if (!existingUser && !bootstrapPassword) {
+      console.warn('[PakRelief] Admin profile bootstrap skipped; configure PAKRELIEF_ADMIN_BOOTSTRAP_PASSWORD securely.');
+      return;
+    }
+
     const existing = await getIdentifierMapping(adminEmail);
-    const { hash, salt } = hashPassword('PakRelief@2026!');
 
     if (!existing) {
       await saveIdentifierMapping(adminEmail, {
@@ -80,8 +148,8 @@ async function initStatutoryAdmin() {
       console.log('[PakRelief] Initialized NDMA statutory admin mapping in Firestore');
     }
 
-    const existingUser = await getUserById(adminUid);
     if (!existingUser) {
+      const { hash, salt } = hashPassword(bootstrapPassword!);
       await saveUser({
         id: adminUid,
         firebaseUid: adminUid,
@@ -102,7 +170,6 @@ async function initStatutoryAdmin() {
     console.warn('[PakRelief] Warning initializing admin mapping:', err);
   }
 }
-initStatutoryAdmin();
 
 // Health Check
 app.get('/api/health', (req: Request, res: Response) => {
@@ -228,7 +295,7 @@ app.post('/api/auth/lookup-identifier', async (req: Request, res: Response): Pro
   });
 });
 
-app.post('/api/auth/register-profile', async (req: Request, res: Response): Promise<void> => {
+app.post('/api/auth/register-profile', requireFirebaseIdentity, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   const { 
     uid, 
     email, 
@@ -243,21 +310,41 @@ app.post('/api/auth/register-profile', async (req: Request, res: Response): Prom
     address
   } = req.body;
 
-  if (!uid || !email || !role || !identifier) {
+  if (!role || !identifier) {
     res.status(400).json({ success: false, error: 'Missing mandatory registration fields.' });
     return;
   }
 
+  const verifiedUid = req.user?.uid;
+  const verifiedEmail = req.user?.email;
+  if (!verifiedUid || !verifiedEmail || (uid && uid !== verifiedUid)) {
+    res.status(403).json({ success: false, error: 'Registration identity must match the verified Firebase account.' });
+    return;
+  }
+
+  if (!['donor', 'ngo', 'supplier'].includes(role)) {
+    res.status(400).json({ success: false, error: 'Self-registration is limited to donor, NGO, and supplier accounts.' });
+    return;
+  }
+
+  if (await getUserById(verifiedUid)) {
+    res.status(409).json({ success: false, error: 'A profile already exists for this Firebase account.' });
+    return;
+  }
+
   const now = Date.now();
-  const normalizedEmail = email.trim().toLowerCase();
+  const normalizedEmail = verifiedEmail.trim().toLowerCase();
+  if (await getIdentifierMapping(identifier) || await getIdentifierMapping(normalizedEmail)) {
+    res.status(409).json({ success: false, error: 'This identifier or email is already registered. Contact support if this is your account.' });
+    return;
+  }
   const isDonor = role === 'donor';
-  const isAdmin = role === 'admin';
-  const initialStatus = (isDonor || isAdmin) ? 'approved' : 'pending';
+  const initialStatus = isDonor ? 'approved' : 'pending';
 
   // 1. Create UserProfile in Firestore
   const userProfile: UserProfile = {
-    id: uid,
-    firebaseUid: uid,
+    id: verifiedUid,
+    firebaseUid: verifiedUid,
     email: normalizedEmail,
     name: name || normalizedEmail,
     role,
@@ -321,9 +408,9 @@ app.post('/api/auth/register-profile', async (req: Request, res: Response): Prom
     await saveSupplier(supplierProfile);
   }
 
-  // 4. Set custom claim immediately for Donors and Admins
-  if (isDonor || isAdmin) {
-    await setCustomClaim(uid, { role });
+  // Server authorization uses the trusted profile and admin UID allowlist, not this donor claim.
+  if (isDonor) {
+    await setCustomClaim(verifiedUid, { role });
   }
 
   res.json({
@@ -335,7 +422,7 @@ app.post('/api/auth/register-profile', async (req: Request, res: Response): Prom
   });
 });
 
-// Direct Secure Registration (works seamlessly with or without Firebase Email/Password provider enabled)
+// Legacy Registration Migration (server provisions Firebase Auth when client email/password auth is unavailable)
 app.post('/api/auth/register-direct', async (req: Request, res: Response): Promise<void> => {
   const { 
     email, 
@@ -356,15 +443,31 @@ app.post('/api/auth/register-direct', async (req: Request, res: Response): Promi
     return;
   }
 
+  if (!['donor', 'ngo', 'supplier'].includes(role)) {
+    res.status(400).json({ success: false, error: 'Self-registration is limited to donor, NGO, and supplier accounts.' });
+    return;
+  }
+
   const normalizedEmail = email.trim().toLowerCase();
   const trimmedIdentifier = identifier.trim();
+  if (await getIdentifierMapping(trimmedIdentifier) || await getIdentifierMapping(normalizedEmail)) {
+    res.status(409).json({ success: false, error: 'This identifier or email is already registered. Sign in or contact support.' });
+    return;
+  }
+  try {
+    await assertFirebaseEmailAvailable(normalizedEmail);
+  } catch (error: any) {
+    const conflict = error.message?.startsWith('This email is already linked');
+    res.status(conflict ? 409 : 503).json({ success: false, error: error.message });
+    return;
+  }
+
   const now = Date.now();
   const uid = `usr_${now}_${crypto.randomBytes(6).toString('hex')}`;
   const { hash, salt } = hashPassword(password);
 
   const isDonor = role === 'donor';
-  const isAdmin = role === 'admin';
-  const initialStatus = (isDonor || isAdmin) ? 'approved' : 'pending';
+  const initialStatus = isDonor ? 'approved' : 'pending';
 
   const userProfile: UserProfile = {
     id: uid,
@@ -430,19 +533,35 @@ app.post('/api/auth/register-direct', async (req: Request, res: Response): Promi
     });
   }
 
-  const sessionToken = `session_${crypto.randomBytes(32).toString('hex')}`;
+  let customToken: string;
+  try {
+    customToken = await migrateLegacyUserToFirebaseAuth(uid, normalizedEmail, password, userProfile.name);
+    await removeLegacyPassword(uid);
+  } catch (error) {
+    console.error('[PakRelief] Could not migrate direct registration to Firebase Auth:', error);
+    const authError = error as { message?: string; code?: string };
+    const conflict = authError.message?.startsWith('This email is already linked') ||
+      authError.code === 'auth/email-already-exists' || authError.code === 'auth/uid-already-exists';
+    res.status(conflict ? 409 : 503).json({
+      success: false,
+      error: conflict
+        ? 'A Firebase account already owns this identity. The profile is retained; sign in with Firebase or contact support to reconcile it.'
+        : 'The profile was created, but secure Firebase sign-in is unavailable. Your account is retained; contact support to complete sign-in.'
+    });
+    return;
+  }
 
   res.json({
     success: true,
     user: userProfile,
-    token: sessionToken,
+    customToken,
     message: initialStatus === 'pending'
       ? 'Registration submitted! Your statutory documents are awaiting NDMA Admin approval.'
       : 'Account registered and verified successfully.'
   });
 });
 
-// Direct Secure Login (works seamlessly with or without Firebase Email/Password provider enabled)
+// Legacy Login Migration (the stored legacy password must verify before Firebase token issuance)
 app.post('/api/auth/login-direct', async (req: Request, res: Response): Promise<void> => {
   const { identifier, role, password } = req.body;
   if (!identifier || !password) {
@@ -477,72 +596,110 @@ app.post('/api/auth/login-direct', async (req: Request, res: Response): Promise<
   }
 
   // 3. Verify password
-  if (user.passwordHash && user.passwordSalt) {
+  if (user.role === 'admin') {
+    const bootstrapPassword = process.env.PAKRELIEF_ADMIN_BOOTSTRAP_PASSWORD;
+    if (!bootstrapPassword) {
+      res.status(503).json({
+        success: false,
+        error: 'Legacy administrator sign-in requires PAKRELIEF_ADMIN_BOOTSTRAP_PASSWORD. Existing Firebase administrator sign-in remains available.'
+      });
+      return;
+    }
+    if (password !== bootstrapPassword) {
+      res.status(401).json({ success: false, error: 'Incorrect administrator credentials.' });
+      return;
+    }
+    const { hash, salt } = hashPassword(password);
+    await updateUser(user.id, { passwordHash: hash, passwordSalt: salt });
+  } else if (user.passwordHash && user.passwordSalt) {
     const valid = verifyPassword(password, user.passwordHash, user.passwordSalt);
     if (!valid) {
       res.status(401).json({ success: false, error: 'Incorrect password. Please verify and try again.' });
       return;
     }
-  } else if (role === 'admin' && (password === 'PakRelief@2026!' || password === 'admin123')) {
-    // Admin default bootstrap password allowed
   } else {
-    // Save password hash for future direct logins
-    const { hash, salt } = hashPassword(password);
-    await updateUser(user.id, { passwordHash: hash, passwordSalt: salt });
+    res.status(409).json({
+      success: false,
+      error: 'This profile has no verified legacy password. Sign in with Firebase or contact support to recover the account.'
+    });
+    return;
   }
 
-  const sessionToken = `session_${crypto.randomBytes(32).toString('hex')}`;
+  let customToken: string;
+  try {
+    customToken = await migrateLegacyUserToFirebaseAuth(user.id, user.email, password, user.name);
+    await removeLegacyPassword(user.id);
+  } catch (error) {
+    console.error('[PakRelief] Could not migrate direct login to Firebase Auth:', error);
+    const authError = error as { message?: string; code?: string };
+    const conflict = authError.message?.startsWith('A Firebase identity already exists') ||
+      authError.message?.startsWith('This email is already linked');
+    res.status(conflict ? 409 : 503).json({
+      success: false,
+      error: conflict
+        ? authError.message
+        : 'Your legacy password was verified, but secure Firebase sign-in is unavailable. Your account remains intact; contact support to complete migration.'
+    });
+    return;
+  }
 
   res.json({
     success: true,
     user,
-    token: sessionToken,
+    customToken,
     message: 'Signed in successfully via secure PakRelief authentication.'
   });
 });
 
 // Profile Lookup by Token
-app.get('/api/auth/profile', async (req: Request, res: Response): Promise<void> => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    res.status(401).json({ success: false, error: 'Unauthorized. Missing token.' });
-    return;
-  }
-
-  const token = authHeader.split('Bearer ')[1];
-  const verified = await verifyFirebaseIdToken(token);
-  if (!verified) {
-    res.status(401).json({ success: false, error: 'Invalid or expired Firebase authentication token.' });
-    return;
-  }
-
-  const user = await getUserById(verified.uid);
-  if (!user) {
+app.get('/api/auth/profile', requireAuth, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  if (!req.profile) {
     res.status(404).json({ success: false, error: 'User profile not found in Firestore.' });
     return;
   }
 
-  res.json({ success: true, user });
+  res.json({ success: true, user: req.profile });
+});
+
+app.patch('/api/auth/whatsapp-consent', requireAuth, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  if (req.profile?.role !== 'donor') {
+    res.status(403).json({ success: false, error: 'WhatsApp campaign notifications are available to supporter accounts.' });
+    return;
+  }
+  const { optIn, phone } = req.body;
+  if (typeof optIn !== 'boolean') {
+    res.status(400).json({ success: false, error: 'An explicit optIn boolean is required.' });
+    return;
+  }
+  try {
+    await updateWhatsAppConsent(req.profile.id, optIn, typeof phone === 'string' ? phone : undefined);
+    res.json({ success: true, whatsappOptIn: optIn });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'WhatsApp consent could not be updated.'
+    });
+  }
 });
 
 // ==========================================
 // 3. REAL DISASTER CAMPAIGNS & REQUIREMENTS
 // ==========================================
 
-app.get('/api/campaigns', async (req: Request, res: Response): Promise<void> => {
-  const campaigns = await getCampaigns();
-  const requirements = await getRequirements();
+app.use('/api', createCampaignWorkflowRouter({
+  requireAuth,
+  requireAdmin,
+  getCampaigns,
+  getRequirements,
+  reviewCampaign: reviewCampaignTransaction,
+  publishApprovedCampaign: socialMediaService.publishApprovedCampaign,
+  retryPlatform: socialMediaService.retryPlatform,
+  getCampaign: getCampaignById,
+  hasValidApproval: campaign => hasValidAdminCampaignApproval(campaign, uid => provisionedAdminUids.has(uid)),
+  reconcileStalePublication: reconcileStaleSocialPublication
+}));
 
-  // Attach requirements to each campaign
-  const populated = campaigns.map(camp => ({
-    ...camp,
-    requirements: requirements.filter(r => r.campaignId === camp.id)
-  }));
-
-  res.json({ success: true, campaigns: populated });
-});
-
-app.post('/api/campaigns', async (req: Request, res: Response): Promise<void> => {
+app.post('/api/campaigns', requireAuth, requireNgo, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   const { 
     disasterName, 
     disasterType, 
@@ -552,14 +709,24 @@ app.post('/api/campaigns', async (req: Request, res: Response): Promise<void> =>
     urgentNotice,
     targetBeneficiaries,
     campCoordinates,
-    ngoId,
-    ngoName,
     photoUrl,
     requirements
   } = req.body;
 
-  if (!disasterName || !location || !province || !ngoId) {
+  if (!disasterName || !location || !province) {
     res.status(400).json({ success: false, error: 'Missing required campaign information.' });
+    return;
+  }
+
+  const ngoUser = req.profile;
+  if (!ngoUser || ngoUser.verificationStatus !== 'approved') {
+    res.status(403).json({ success: false, error: 'Only an approved NGO may submit campaigns.' });
+    return;
+  }
+  const ngos = await getNgos();
+  const ngoProfile = ngos.find(ngo => ngo.linkedUserId === ngoUser.id && ngo.status === 'approved');
+  if (!ngoProfile) {
+    res.status(403).json({ success: false, error: 'An approved NGO organization profile is required to submit campaigns.' });
     return;
   }
 
@@ -568,8 +735,8 @@ app.post('/api/campaigns', async (req: Request, res: Response): Promise<void> =>
 
   const newCampaign: Campaign = {
     id: campaignId,
-    ngoId,
-    ngoName: ngoName || 'Accredited Relief NGO',
+    ngoId: ngoUser.id,
+    ngoName: ngoProfile.organizationName || ngoUser.name,
     disasterName,
     disasterType: disasterType || 'Flood',
     location,
@@ -580,7 +747,7 @@ app.post('/api/campaigns', async (req: Request, res: Response): Promise<void> =>
     campCoordinates: campCoordinates || 'Disaster Relief Base Camp',
     photoUrl: photoUrl || 'https://images.unsplash.com/photo-1547683905-f686c993aae5?auto=format&fit=crop&w=1200&q=80',
     createdAt: now,
-    status: 'active'
+    status: 'pending_review'
   };
 
   await saveCampaign(newCampaign);
@@ -612,11 +779,17 @@ app.post('/api/campaigns', async (req: Request, res: Response): Promise<void> =>
 
 app.get('/api/requirements', async (req: Request, res: Response): Promise<void> => {
   const campaignId = req.query.campaignId as string | undefined;
-  const requirements = await getRequirements(campaignId);
+  const campaigns = (await getCampaigns()).filter(campaign => campaign.status === 'approved' || campaign.status === 'active');
+  const visibleCampaignIds = new Set(campaigns.map(campaign => campaign.id));
+  if (campaignId && !visibleCampaignIds.has(campaignId)) {
+    res.json({ success: true, requirements: [] });
+    return;
+  }
+  const requirements = (await getRequirements(campaignId)).filter(requirement => visibleCampaignIds.has(requirement.campaignId));
   res.json({ success: true, requirements });
 });
 
-app.post('/api/requirements', async (req: Request, res: Response): Promise<void> => {
+app.post('/api/requirements', requireAuth, requireNgo, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   const { 
     campaignId, 
     itemName, 
@@ -633,6 +806,16 @@ app.post('/api/requirements', async (req: Request, res: Response): Promise<void>
 
   if (!campaignId || (!itemName && !itemType)) {
     res.status(400).json({ success: false, error: 'Campaign ID and Item name are required.' });
+    return;
+  }
+
+  if (!req.profile || req.profile.verificationStatus !== 'approved') {
+    res.status(403).json({ success: false, error: 'Only an approved NGO may add campaign requirements.' });
+    return;
+  }
+  const campaign = await (await getCampaigns()).find(item => item.id === campaignId);
+  if (!campaign || campaign.ngoId !== req.profile.id || !['pending_review', 'approved', 'active'].includes(campaign.status)) {
+    res.status(403).json({ success: false, error: 'Requirements may only be added to your own eligible campaign.' });
     return;
   }
 
@@ -661,26 +844,36 @@ app.post('/api/requirements', async (req: Request, res: Response): Promise<void>
 // ==========================================
 
 app.get('/api/products', async (req: Request, res: Response): Promise<void> => {
+  await expirePendingDemoOrders();
   const supplierId = req.query.supplierId as string | undefined;
   const products = await getProducts(supplierId);
   res.json({ success: true, products });
 });
 
-app.post('/api/products', async (req: Request, res: Response): Promise<void> => {
+app.post('/api/products', requireAuth, requireSupplier, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   const { 
-    supplierId, 
-    supplierName, 
     name, 
     category, 
     unitPrice, 
+    price,
     unit, 
     specifications, 
     stockAvailable,
+    stock,
     warehouseLocation,
+    location,
     imageUrl
   } = req.body;
 
-  if (!supplierId || !name || !unitPrice || !stockAvailable) {
+  const supplierProfile = req.profile ? await getApprovedSupplierForUser(req.profile.id) : null;
+  if (!supplierProfile || req.profile?.verificationStatus !== 'approved') {
+    res.status(403).json({ success: false, error: 'An approved supplier account is required to list products.' });
+    return;
+  }
+
+  const serverUnitPrice = Number(unitPrice ?? price);
+  const serverStock = Number(stockAvailable ?? stock);
+  if (typeof name !== 'string' || !name.trim() || !Number.isSafeInteger(serverUnitPrice) || serverUnitPrice <= 0 || !Number.isSafeInteger(serverStock) || serverStock < 0) {
     res.status(400).json({ success: false, error: 'Missing mandatory product listing fields.' });
     return;
   }
@@ -688,17 +881,18 @@ app.post('/api/products', async (req: Request, res: Response): Promise<void> => 
   const productId = `prod-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
   const newProduct: Product = {
     id: productId,
-    supplierId,
-    supplierName: supplierName || 'Accredited Supplier',
-    name,
+    supplierId: req.profile!.id,
+    supplierName: supplierProfile.companyName,
+    name: name.trim(),
     category: category || 'Rations',
-    unitPrice: Number(unitPrice),
+    unitPrice: serverUnitPrice,
     unit: unit || 'Pack',
     specifications: specifications || '',
-    stockAvailable: Number(stockAvailable),
-    warehouseLocation: warehouseLocation || 'Karachi Central Hub',
+    stockAvailable: serverStock,
+    warehouseLocation: warehouseLocation || location || supplierProfile.warehouseCity,
     imageUrl: imageUrl || 'https://images.unsplash.com/photo-1584727638096-042c45049ebe?auto=format&fit=crop&w=800&q=80',
     complianceApproved: true,
+    status: 'approved',
     createdAt: Date.now()
   };
 
@@ -706,236 +900,292 @@ app.post('/api/products', async (req: Request, res: Response): Promise<void> => 
   res.json({ success: true, product: newProduct });
 });
 
+app.patch('/api/products/:productId', requireAuth, requireSupplier, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  const supplierProfile = req.profile ? await getApprovedSupplierForUser(req.profile.id) : null;
+  if (!supplierProfile || req.profile?.verificationStatus !== 'approved') {
+    res.status(403).json({ success: false, error: 'An approved supplier account is required to update products.' });
+    return;
+  }
+  const product = await getProductById(req.params.productId);
+  if (!product) {
+    res.status(404).json({ success: false, error: 'Product not found.' });
+    return;
+  }
+  if (product.supplierId !== req.profile!.id) {
+    res.status(403).json({ success: false, error: 'Suppliers may only update their own products and stock.' });
+    return;
+  }
+
+  const updates: Partial<Product> = {};
+  const body = req.body as Record<string, unknown>;
+  if (body.name !== undefined) {
+    if (typeof body.name !== 'string' || !body.name.trim()) {
+      res.status(400).json({ success: false, error: 'Product name is invalid.' });
+      return;
+    }
+    updates.name = body.name.trim();
+  }
+  if (body.unitPrice !== undefined || body.price !== undefined) {
+    const updatedPrice = Number(body.unitPrice ?? body.price);
+    if (!Number.isSafeInteger(updatedPrice) || updatedPrice <= 0) {
+      res.status(400).json({ success: false, error: 'Unit price must be a positive whole PKR amount.' });
+      return;
+    }
+    updates.unitPrice = updatedPrice;
+  }
+  if (body.stockAvailable !== undefined || body.stock !== undefined) {
+    const updatedStock = Number(body.stockAvailable ?? body.stock);
+    if (!Number.isSafeInteger(updatedStock) || updatedStock < 0) {
+      res.status(400).json({ success: false, error: 'Stock must be a non-negative whole number.' });
+      return;
+    }
+    updates.stockAvailable = updatedStock;
+  }
+  if (body.category !== undefined && typeof body.category === 'string') updates.category = body.category;
+  if (body.unit !== undefined && typeof body.unit === 'string') updates.unit = body.unit;
+  if (body.specifications !== undefined && typeof body.specifications === 'string') updates.specifications = body.specifications;
+  if (body.warehouseLocation !== undefined && typeof body.warehouseLocation === 'string') updates.warehouseLocation = body.warehouseLocation;
+  if (body.location !== undefined && typeof body.location === 'string') updates.warehouseLocation = body.location;
+  if (body.imageUrl !== undefined && typeof body.imageUrl === 'string') updates.imageUrl = body.imageUrl;
+
+  await updateProduct(product.id, updates);
+  res.json({ success: true, product: { ...product, ...updates } });
+});
+
 // ==========================================
 // 5. REAL ORDERS & TRACEABILITY PIPELINE
 // ==========================================
 
-app.get('/api/orders', async (req: Request, res: Response): Promise<void> => {
-  const orders = await getOrders();
-  res.json({ success: true, orders });
-});
-
-// Supplier Dispatches Order
-app.patch('/api/orders/:id/dispatch', async (req: Request, res: Response): Promise<void> => {
-  const { id } = req.params;
-  const { courierName, trackingNumber, vehicleNumber, driverContact, estimatedArrival } = req.body;
-
-  if (!courierName || !trackingNumber) {
-    res.status(400).json({ success: false, error: 'Courier name and tracking number are required.' });
-    return;
-  }
-
-  const now = Date.now();
-  await updateOrder(id, {
-    status: 'Dispatched',
-    dispatchDetails: {
-      courierName,
-      trackingNumber,
-      dispatchedAt: now,
-      estimatedArrival: estimatedArrival || now + 24 * 3600 * 1000,
-      driverContact: driverContact || '',
-      vehicleNumber: vehicleNumber || ''
-    }
-  });
-
-  res.json({ success: true, message: 'Order dispatched with courier tracking.' });
-});
-
-// Supplier Marks Arrived at Camp
-app.patch('/api/orders/:id/deliver', async (req: Request, res: Response): Promise<void> => {
-  const { id } = req.params;
-  await updateOrder(id, {
-    status: 'Delivered'
-  });
-  res.json({ success: true, message: 'Order marked delivered at camp destination.' });
-});
-
-// NGO Ground Officer Signs Off Confirmation
-app.patch('/api/orders/:id/confirm-ngo', async (req: Request, res: Response): Promise<void> => {
-  const { id } = req.params;
-  const { confirmedBy, officerCnic, officerPhone, notes } = req.body;
-
-  if (!confirmedBy) {
-    res.status(400).json({ success: false, error: 'Field officer name is required for digital sign-off.' });
-    return;
-  }
-
-  const orders = await getOrders();
-  const order = orders.find(o => o.id === id);
-  if (!order) {
-    res.status(404).json({ success: false, error: 'Order not found.' });
-    return;
-  }
-
-  const now = Date.now();
-  await updateOrder(id, {
-    status: 'NGO Confirmed',
-    ngoConfirmation: {
-      confirmedBy,
-      confirmedAt: now,
-      officerCnic: officerCnic || '',
-      officerPhone: officerPhone || '',
-      notes: notes || 'Relief goods inspected, verified, and distributed to registered families.'
-    }
-  });
-
-  // Atomically increment requirement quantityDelivered
-  const requirements = await getRequirements();
-  for (const item of order.items) {
-    const req = requirements.find(r => r.campaignId === order.campaignId && r.itemName.toLowerCase().includes(item.productName.toLowerCase()));
-    if (req) {
-      await updateRequirement(req.id, {
-        quantityDelivered: (req.quantityDelivered || 0) + item.quantity
-      });
-    }
-  }
-
-  res.json({ success: true, message: 'Ground delivery officially certified by NGO officer.' });
-});
-
-// ==========================================
-// 6. REAL JAZZCASH PAYMENT & ATOMIC ORDER CREATION
-// ==========================================
-
-app.post('/api/payments/verify-jazzcash', async (req: Request, res: Response): Promise<void> => {
-  const { 
-    mobileNumber, 
-    cnicLast6, 
-    mpin, 
-    cartItems, 
-    donorId, 
-    donorName, 
-    donorEmail 
-  } = req.body;
-
-  if (!mobileNumber || !cnicLast6 || !mpin || !cartItems || !Array.isArray(cartItems) || cartItems.length === 0) {
-    res.status(400).json({ success: false, error: 'Incomplete JazzCash payment verification details.' });
-    return;
-  }
-
-  // Validate format
-  if (!/^03[0-9]{9}$/.test(mobileNumber.trim())) {
-    res.status(400).json({ success: false, error: 'Invalid JazzCash mobile account number (must be 03xx-xxxxxxx).' });
-    return;
-  }
-
-  if (cnicLast6.trim().length !== 6 || isNaN(Number(cnicLast6))) {
-    res.status(400).json({ success: false, error: 'Last 6 digits of CNIC must be 6 numeric digits.' });
-    return;
-  }
-
-  if (mpin.trim().length !== 4 || isNaN(Number(mpin))) {
-    res.status(400).json({ success: false, error: 'JazzCash MPIN must be 4 numeric digits.' });
-    return;
-  }
-
-  const now = Date.now();
-  const gatewayReference = `JC-TXN-${now.toString().slice(-6)}-${Math.floor(100 + Math.random() * 900)}`;
-
-  // Group cart items by campaign and supplier to create orders
-  const createdOrders: Order[] = [];
-  const requirements = await getRequirements();
-
-  // Calculate total amount
-  let totalOrderAmount = 0;
-  for (const item of cartItems) {
-    totalOrderAmount += (item.quantity * item.unitPrice);
-  }
-
-  // Record Transaction
-  const txId = `tx-${now}-${Math.floor(100 + Math.random() * 900)}`;
-  const newTx: Transaction = {
-    id: txId,
-    orderId: '', // populated below
-    gatewayReference,
-    amount: totalOrderAmount,
-    currency: 'PKR',
-    status: 'Verified',
-    paymentMethod: 'JazzCash',
-    accountNumber: `03**-***${mobileNumber.slice(-4)}`,
-    verifiedAt: now,
-    rawGatewayResponse: {
-      status: 'PAID',
-      message: 'Transaction authorized successfully via JazzCash Sandbox',
-      authCode: `AUTH-${Math.floor(100000 + Math.random() * 900000)}`,
-      timestamp: new Date().toISOString()
-    }
+function toPublicOrder(order: Order): Order {
+  return {
+    ...order,
+    donorId: 'public',
+    donorName: 'Private supporter',
+    donorEmail: undefined,
+    donorCnic: undefined,
+    amount: 0,
+    gatewayReference: '',
+    transactionId: undefined,
+    paymentMethod: undefined,
+    items: order.items.map(item => ({ ...item, unitPrice: 0 }))
   };
+}
 
-  // Group by campaignId
-  const itemsByCampaign: { [campId: string]: typeof cartItems } = {};
-  for (const item of cartItems) {
-    const cId = item.campaignId;
-    if (!itemsByCampaign[cId]) itemsByCampaign[cId] = [];
-    itemsByCampaign[cId].push(item);
+app.get('/api/orders', optionalAuth, async (req: Request, res: Response): Promise<void> => {
+  await expirePendingDemoOrders();
+  const allOrders = await getOrders();
+  const authenticatedRequest = req as AuthenticatedRequest;
+  const profile = authenticatedRequest.profile;
+  if (!profile) {
+    res.json({ success: true, orders: allOrders.map(toPublicOrder) });
+    return;
   }
 
-  const campaigns = await getCampaigns();
-
-  for (const [cId, items] of Object.entries(itemsByCampaign)) {
-    const campaign = campaigns.find(c => c.id === cId);
-    const campaignName = campaign ? campaign.disasterName : 'Emergency Relief Campaign';
-    const ngoName = campaign ? campaign.ngoName : 'Accredited NGO';
-
-    const orderId = `PKR-ORD-${now.toString().slice(-6)}-${Math.floor(100 + Math.random() * 900)}`;
-    const subtotal = items.reduce((sum: number, i: any) => sum + (i.quantity * i.unitPrice), 0);
-
-    const newOrder: Order = {
-      id: orderId,
-      orderNumber: orderId,
-      donorId: donorId || 'guest-donor',
-      donorName: donorName || 'Verified Philanthropist',
-      campaignId: cId,
-      campaignName,
-      ngoName,
-      supplierId: items[0]?.supplierId || 'supplier-1',
-      supplierName: items[0]?.supplierName || 'Accredited Supplier',
-      items: items.map((i: any) => ({
-        productId: i.productId,
-        productName: i.productName,
-        quantity: i.quantity,
-        unitPrice: i.unitPrice,
-        unit: i.unit || 'Pack'
-      })),
-      amount: subtotal,
-      currency: 'PKR',
-      status: 'Paid',
-      gatewayReference,
-      createdAt: now,
-      updatedAt: now
-    };
-
-    await saveOrder(newOrder);
-    createdOrders.push(newOrder);
-
-    // Update requirements atomically
-    for (const i of items) {
-      const req = requirements.find(r => r.campaignId === cId && (r.id === i.requirementId || r.itemName.toLowerCase().includes(i.productName.toLowerCase())));
-      if (req) {
-        await updateRequirement(req.id, {
-          quantityFunded: (req.quantityFunded || 0) + i.quantity
-        });
-      }
+  if (profile.role === 'donor') {
+    res.json({ success: true, orders: allOrders.filter(order => order.donorId === profile.id || order.donorEmail === profile.email) });
+    return;
+  }
+  if (profile.role === 'supplier') {
+    const supplier = await getApprovedSupplierForUser(profile.id);
+    if (!supplier || profile.verificationStatus !== 'approved') {
+      res.status(403).json({ success: false, error: 'An approved supplier account is required to view supplier orders.' });
+      return;
     }
+    res.json({ success: true, orders: allOrders.filter(order => order.supplierId === profile.id) });
+    return;
+  }
+  if (profile.role === 'ngo') {
+    const ngos = await getNgos();
+    if (profile.verificationStatus !== 'approved' || !ngos.some(ngo => ngo.linkedUserId === profile.id && ngo.status === 'approved')) {
+      res.status(403).json({ success: false, error: 'An approved NGO account is required to view NGO deliveries.' });
+      return;
+    }
+    const campaignIds = new Set((await getCampaigns()).filter(campaign => campaign.ngoId === profile.id).map(campaign => campaign.id));
+    res.json({ success: true, orders: allOrders.filter(order => campaignIds.has(order.campaignId)) });
+    return;
+  }
+  if (profile.role === 'admin' && authenticatedRequest.user?.uid && provisionedAdminUids.has(authenticatedRequest.user.uid)) {
+    res.json({ success: true, orders: allOrders });
+    return;
+  }
+  res.status(403).json({ success: false, error: 'Order access is not authorized for this account.' });
+});
+
+function sendOrderTransitionError(res: Response, error: unknown): void {
+  if (error instanceof OrderTransitionError) {
+    res.status(error.kind === 'forbidden' ? 403 : 409).json({ success: false, error: error.message });
+    return;
+  }
+  res.status(500).json({ success: false, error: 'Order status could not be updated.' });
+}
+
+const dispatchOrder: express.RequestHandler = async (req, res) => {
+  const authenticatedRequest = req as AuthenticatedRequest;
+  const profile = authenticatedRequest.profile;
+  const supplier = profile ? await getApprovedSupplierForUser(profile.id) : null;
+  if (!profile || profile.verificationStatus !== 'approved' || !supplier) {
+    res.status(403).json({ success: false, error: 'An approved supplier account is required.' });
+    return;
+  }
+  const orderId = typeof req.params.id === 'string' ? req.params.id : req.body.orderId;
+  const { courierName, trackingNumber, vehicleNumber, driverContact, contactPerson, estimatedArrival } = req.body;
+  if (typeof orderId !== 'string' || typeof courierName !== 'string' || !courierName.trim() || typeof trackingNumber !== 'string' || !trackingNumber.trim()) {
+    res.status(400).json({ success: false, error: 'Order ID, courier name, and tracking number are required.' });
+    return;
+  }
+  const now = Date.now();
+  try {
+    const order = await transitionOrderStatus({
+      orderId,
+      actorId: profile.id,
+      actorRole: 'supplier',
+      allowedFrom: ['Payment Confirmed'],
+      status: 'Dispatched',
+      updates: {
+        dispatchDetails: {
+          courierName: courierName.trim(),
+          trackingNumber: trackingNumber.trim(),
+          dispatchedAt: now,
+          estimatedArrival: Number.isFinite(Number(estimatedArrival)) ? Number(estimatedArrival) : now + 24 * 3600 * 1000,
+          driverContact: typeof driverContact === 'string' ? driverContact : '',
+          vehicleNumber: typeof vehicleNumber === 'string' ? vehicleNumber : '',
+          contactPerson: typeof contactPerson === 'string' ? contactPerson : ''
+        }
+      }
+    });
+    if (!order) {
+      res.status(404).json({ success: false, error: 'Order not found.' });
+      return;
+    }
+    res.json({ success: true, order, message: 'Order dispatched with courier tracking.' });
+  } catch (error) {
+    sendOrderTransitionError(res, error);
+  }
+};
+
+const deliverOrder: express.RequestHandler = async (req, res) => {
+  const authenticatedRequest = req as AuthenticatedRequest;
+  const profile = authenticatedRequest.profile;
+  const supplier = profile ? await getApprovedSupplierForUser(profile.id) : null;
+  if (!profile || profile.verificationStatus !== 'approved' || !supplier) {
+    res.status(403).json({ success: false, error: 'An approved supplier account is required.' });
+    return;
+  }
+  const orderId = typeof req.params.id === 'string' ? req.params.id : req.body.orderId;
+  if (typeof orderId !== 'string' || !orderId) {
+    res.status(400).json({ success: false, error: 'Order ID is required.' });
+    return;
+  }
+  try {
+    const order = await transitionOrderStatus({
+      orderId,
+      actorId: profile.id,
+      actorRole: 'supplier',
+      allowedFrom: ['Dispatched'],
+      status: 'Delivered',
+      updates: { deliveredAt: Date.now() }
+    });
+    if (!order) {
+      res.status(404).json({ success: false, error: 'Order not found.' });
+      return;
+    }
+    res.json({ success: true, order, message: 'Order marked delivered at camp destination.' });
+  } catch (error) {
+    sendOrderTransitionError(res, error);
+  }
+};
+
+const confirmNgoOrder: express.RequestHandler = async (req, res) => {
+  const authenticatedRequest = req as AuthenticatedRequest;
+  const profile = authenticatedRequest.profile;
+  const ngos = profile ? await getNgos() : [];
+  if (!profile || profile.verificationStatus !== 'approved' || !ngos.some(ngo => ngo.linkedUserId === profile.id && ngo.status === 'approved')) {
+    res.status(403).json({ success: false, error: 'An approved NGO account is required to confirm delivery.' });
+    return;
+  }
+  const orderId = typeof req.params.id === 'string' ? req.params.id : req.body.orderId;
+  const { confirmedBy, officerCnic, officerPhone, notes, distributionProofUrl } = req.body;
+  if (typeof orderId !== 'string' || typeof confirmedBy !== 'string' || !confirmedBy.trim()) {
+    res.status(400).json({ success: false, error: 'Order ID and field officer name are required.' });
+    return;
+  }
+  const confirmedAt = Date.now();
+  try {
+    const order = await transitionOrderStatus({
+      orderId,
+      actorId: profile.id,
+      actorRole: 'ngo',
+      allowedFrom: ['Delivered'],
+      status: 'NGO Confirmed',
+      confirmedAt,
+      updates: {
+        ngoConfirmation: {
+          confirmedBy: confirmedBy.trim(),
+          confirmedAt,
+          officerCnic: typeof officerCnic === 'string' ? officerCnic : '',
+          officerPhone: typeof officerPhone === 'string' ? officerPhone : '',
+          notes: typeof notes === 'string' ? notes : 'Relief goods inspected and verified at the camp.',
+          distributionProofUrl: typeof distributionProofUrl === 'string' ? distributionProofUrl : undefined
+        }
+      }
+    });
+    if (!order) {
+      res.status(404).json({ success: false, error: 'Order not found.' });
+      return;
+    }
+    res.json({ success: true, order, message: 'Ground delivery officially certified by NGO officer.' });
+  } catch (error) {
+    sendOrderTransitionError(res, error);
+  }
+};
+
+app.patch('/api/orders/:id/dispatch', requireAuth, requireSupplier, dispatchOrder);
+app.post('/api/orders/dispatch', requireAuth, requireSupplier, dispatchOrder);
+app.patch('/api/orders/:id/deliver', requireAuth, requireSupplier, deliverOrder);
+app.post('/api/orders/deliver', requireAuth, requireSupplier, deliverOrder);
+app.patch('/api/orders/:id/confirm-ngo', requireAuth, requireNgo, confirmNgoOrder);
+app.post('/api/orders/confirm-receipt', requireAuth, requireNgo, confirmNgoOrder);
+
+// Compatibility endpoint: this is a demo reservation, never a gateway verification.
+app.post('/api/payments/verify-jazzcash', requireAuth, requireDonor, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  if (!req.profile) {
+    res.status(401).json({ success: false, error: 'Authenticated donor profile is required.' });
+    return;
+  }
+  const { requestId, cartItems } = req.body;
+  if (typeof requestId !== 'string' || requestId.length < 16 || requestId.length > 128) {
+    res.status(400).json({ success: false, error: 'A unique checkout requestId is required.' });
+    return;
   }
 
-  newTx.orderId = createdOrders.map(o => o.orderNumber).join(', ');
-  await saveTransaction(newTx);
-
-  res.json({
-    success: true,
-    orders: createdOrders,
-    gatewayReference,
-    transaction: newTx,
-    message: 'JazzCash payment successfully verified and relief orders recorded in Firestore.'
-  });
+  try {
+    const lines = normalizeCheckoutLines(cartItems);
+    const result = await createDemoPendingCheckout({ donor: req.profile, requestId, lines });
+    res.status(result.replayed ? 200 : 201).json({
+      success: true,
+      demo: true,
+      paymentStatus: 'Pending',
+      orders: result.orders,
+      transactions: result.transactions,
+      gatewayReference: result.transactions[0]?.gatewayReference,
+      replayed: result.replayed,
+      message: 'Demo order reserved. No payment was submitted, received, or verified.'
+    });
+  } catch (error) {
+    if (error instanceof CheckoutValidationError) {
+      res.status(400).json({ success: false, demo: true, error: error.message });
+      return;
+    }
+    console.error('[PakRelief] Demo checkout failed:', error);
+    res.status(409).json({ success: false, demo: true, error: 'The cart changed or inventory is unavailable. Refresh and try again.' });
+  }
 });
 
 // ==========================================
 // 7. ADMIN OVERSIGHT & STATUTORY APPROVALS
 // ==========================================
 
-app.get('/api/admin/pending-entities', async (req: Request, res: Response): Promise<void> => {
+app.get('/api/admin/pending-entities', requireAuth, requireAdmin, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   const ngos = await getNgos();
   const suppliers = await getSuppliers();
 
@@ -946,12 +1196,12 @@ app.get('/api/admin/pending-entities', async (req: Request, res: Response): Prom
   });
 });
 
-app.get('/api/admin/pending-users', async (req: Request, res: Response): Promise<void> => {
+app.get('/api/admin/pending-users', requireAuth, requireAdmin, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   const users = await getUsers();
   res.json(users);
 });
 
-app.patch('/api/admin/verify-user', async (req: Request, res: Response): Promise<void> => {
+app.patch('/api/admin/verify-user', requireAuth, requireAdmin, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   const { userId, status } = req.body;
   if (!userId || !status) {
     res.status(400).json({ success: false, error: 'User ID and status are required.' });
@@ -990,17 +1240,24 @@ app.patch('/api/admin/verify-user', async (req: Request, res: Response): Promise
   res.json({ success: true, message: `User status updated to ${status}.` });
 });
 
-app.get('/api/transactions', async (req: Request, res: Response): Promise<void> => {
-  const transactions = await getTransactions();
-  res.json(transactions);
+app.get('/api/transactions', requireAuth, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  if (req.profile?.role === 'donor') {
+    res.json({ success: true, transactions: await getTransactionsByDonor(req.profile.id) });
+    return;
+  }
+  if (req.profile?.role === 'admin' && req.user?.uid && provisionedAdminUids.has(req.user.uid)) {
+    res.json({ success: true, transactions: await getTransactions() });
+    return;
+  }
+  res.status(403).json({ success: false, error: 'Payment record access is not authorized for this account.' });
 });
 
-app.patch('/api/admin/flag-transaction', async (req: Request, res: Response): Promise<void> => {
+app.patch('/api/admin/flag-transaction', requireAuth, requireAdmin, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   const { transactionId, flagged, reason } = req.body;
   res.json({ success: true, message: `Transaction flagged status updated to ${flagged}.` });
 });
 
-app.post('/api/admin/approve-entity', async (req: Request, res: Response): Promise<void> => {
+app.post('/api/admin/approve-entity', requireAuth, requireAdmin, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   const { entityType, entityId, status, notes } = req.body;
   if (!entityType || !entityId || !status) {
     res.status(400).json({ success: false, error: 'Missing approval details.' });

@@ -17,6 +17,10 @@ export interface UserProfile {
   passwordHash?: string;
   passwordSalt?: string;
   rejectionReason?: string;
+  whatsappPhone?: string;
+  whatsappOptIn?: boolean;
+  whatsappOptedInAt?: number;
+  whatsappOptedOutAt?: number;
   ngoDetails?: {
     organizationName?: string;
     registrationType?: 'SECP' | 'Society' | 'Trust' | 'VSWA';
@@ -100,7 +104,35 @@ export interface Campaign {
   status: 'pending_review' | 'approved' | 'rejected' | 'completed' | 'active';
   createdAt: number;
   urgentNotice?: string;
+  reviewedByAdminId?: string;
+  reviewedByAdminName?: string;
+  reviewedAt?: number;
+  reviewNotes?: string;
+  socialPublishing?: CampaignSocialPublishing;
   requirements?: Requirement[];
+}
+
+export type SocialPlatform = 'facebook' | 'instagram' | 'whatsapp';
+export type SocialPublicationStatus = 'pending' | 'publishing' | 'published' | 'failed';
+
+export interface SocialPlatformPublication {
+  status: SocialPublicationStatus;
+  attempts: number;
+  updatedAt: number;
+  publishedId?: string;
+  containerId?: string;
+  error?: string;
+  errorCode?: string;
+  retryAfter?: number;
+  retryable?: boolean;
+  acceptedCount?: number;
+  failedCount?: number;
+}
+
+export interface CampaignSocialPublishing {
+  facebook: SocialPlatformPublication;
+  instagram: SocialPlatformPublication;
+  whatsapp: SocialPlatformPublication;
 }
 
 export interface Requirement {
@@ -111,6 +143,7 @@ export interface Requirement {
   category: ItemCategory | string;
   quantityNeeded: number;
   quantityFunded: number;
+  quantityReserved?: number;
   quantityDelivered: number;
   urgency: UrgencyLevel | string;
   deadline: string | number;
@@ -143,6 +176,8 @@ export interface Product {
 }
 
 export type OrderStatus = 
+  | 'Payment Pending'
+  | 'Payment Expired'
   | 'Paid'
   | 'Payment Confirmed'
   | 'Dispatched'
@@ -197,6 +232,9 @@ export interface Order {
   currency?: string;
   status: OrderStatus;
   gatewayReference: string;
+  transactionId?: string;
+  reservationExpiresAt?: number;
+  checkoutRequestId?: string;
   paymentMethod?: string;
   createdAt: number;
   updatedAt?: number;
@@ -210,13 +248,15 @@ export interface Transaction {
   gatewayReference: string;
   orderId: string;
   orderNumber?: string;
+  donorId?: string;
+  checkoutRequestId?: string;
   amount: number;
   currency?: string;
   paymentMethod: 'JazzCash Sandbox' | 'JazzCash' | string;
   senderMobile?: string;
   accountNumber?: string;
   cnic?: string;
-  status?: 'Verified' | 'Pending' | 'Flagged' | string;
+  status?: 'Verified' | 'Pending' | 'Expired' | 'Flagged' | string;
   verifiedStatus?: 'verified' | 'flagged' | 'refunded';
   timestamp?: number;
   verifiedAt?: number;

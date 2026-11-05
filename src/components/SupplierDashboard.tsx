@@ -54,9 +54,7 @@ export const SupplierDashboard: React.FC<SupplierDashboardProps> = ({
   const [actionError, setActionError] = useState<string | null>(null);
 
   // Filter orders relevant to this supplier
-  const supplierOrders = orders.filter(
-    o => o.supplierId === user?.id || o.supplierName.toLowerCase().includes('pakagro') || true
-  );
+  const supplierOrders = orders.filter(o => o.supplierId === user?.id);
 
   const pendingDispatchOrders = supplierOrders.filter(o => o.status === 'Payment Confirmed');
   const dispatchedOrders = supplierOrders.filter(o => o.status === 'Dispatched');

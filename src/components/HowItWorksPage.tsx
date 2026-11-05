@@ -66,21 +66,21 @@ export const HowItWorksPage: React.FC<HowItWorksPageProps> = ({ onNavigate }) =>
     {
       id: 3,
       title: "Step 3: Donor Cart & JazzCash Sandbox Checkout",
-      tag: "Independent Payment Verification",
+      tag: "Sandbox Demo Reservation",
       icon: CreditCard,
       color: "emerald",
-      description: "Donors select exact relief goods to sponsor (e.g., 2 family ration packs for Dadu, Sindh). Payment is processed via JazzCash Sandbox with independent backend verification.",
+      description: "Donors select exact relief goods to reserve (e.g., 2 family ration packs for Dadu, Sindh). The current JazzCash screen is a demo only; no payment is processed or verified.",
       details: [
-        "Donor sees 100% itemized breakdown of what their money buys.",
-        "JazzCash Sandbox requires 03xx mobile, CNIC, and 4-digit MPIN.",
-        "Backend independently validates order amount against gateway before creating the order."
+        "Donor sees a server-priced itemized reservation total.",
+        "No mobile account, CNIC, or MPIN is collected by the demo.",
+        "Demo reservations expire after 15 minutes unless an official payment callback is implemented."
       ],
       previewTitle: "Verifiable Transaction Record",
       previewData: {
         orderId: "PKR-ORD-2026-246891",
         gatewayRef: "JC-SBX-061689-467",
         amount: "PKR 13,000 (2 Family Ration Packs)",
-        status: "Payment Confirmed via Independent JazzCash Gateway Audit"
+        status: "Demo reservation pending · no payment verified"
       }
     },
     {

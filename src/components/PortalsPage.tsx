@@ -89,7 +89,7 @@ export const PortalsPage: React.FC<PortalsPageProps> = ({
 
             <h3 className="text-xl font-bold text-slate-900">Donor Portal</h3>
             <p className="text-xs text-slate-600 leading-relaxed">
-              For individuals, overseas Pakistanis, and corporate philanthropists. Fund exact relief goods, verify payments via JazzCash, and track orders to camp delivery.
+              For individuals, overseas Pakistanis, and corporate philanthropists. Fund exact relief goods, pay via Safepay sandbox with webhook-verified payment, and track orders to camp delivery.
             </p>
 
             <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-100 space-y-2 text-xs text-slate-700">
@@ -230,7 +230,7 @@ export const PortalsPage: React.FC<PortalsPageProps> = ({
 
             <h3 className="text-xl font-bold text-slate-900">NDMA Central Admin</h3>
             <p className="text-xs text-slate-600 leading-relaxed">
-              National Disaster Management Authority oversight. Review and approve NGO statutory documents, audit supplier registries, and monitor JazzCash transactions.
+              National Disaster Management Authority oversight. Review and approve NGO statutory documents, audit supplier registries, and monitor Safepay sandbox transactions.
             </p>
 
             <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-100 space-y-2 text-xs text-slate-700">

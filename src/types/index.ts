@@ -235,7 +235,10 @@ export interface Order {
   transactionId?: string;
   reservationExpiresAt?: number;
   checkoutRequestId?: string;
+  /** Safepay checkout aggregate this order belongs to (one session -> N grouped orders). */
+  checkoutId?: string;
   paymentMethod?: string;
+  paymentConfirmedAt?: number;
   createdAt: number;
   updatedAt?: number;
   dispatchDetails?: OrderDispatchDetails;
@@ -250,13 +253,14 @@ export interface Transaction {
   orderNumber?: string;
   donorId?: string;
   checkoutRequestId?: string;
+  checkoutId?: string;
   amount: number;
   currency?: string;
-  paymentMethod: 'JazzCash Sandbox' | 'JazzCash' | string;
+  paymentMethod: 'JazzCash Sandbox' | 'JazzCash' | 'Safepay' | string;
   senderMobile?: string;
   accountNumber?: string;
   cnic?: string;
-  status?: 'Verified' | 'Pending' | 'Expired' | 'Flagged' | string;
+  status?: 'Verified' | 'Pending' | 'Expired' | 'Failed' | 'Cancelled' | 'Flagged' | 'Refunded' | string;
   verifiedStatus?: 'verified' | 'flagged' | 'refunded';
   timestamp?: number;
   verifiedAt?: number;
@@ -264,7 +268,48 @@ export interface Transaction {
   donorName?: string;
   flagged?: boolean;
   verifiedByBackend?: boolean;
+  safepayTracker?: string;
+  gatewayState?: string;
+  failureReason?: string;
   rawGatewayResponse?: any;
+}
+
+/** Server-authoritative Safepay hosted-checkout payment state. */
+export type SafepayPaymentStatus =
+  | 'initiating'
+  | 'pending'
+  | 'succeeded'
+  | 'failed'
+  | 'cancelled'
+  | 'expired'
+  | 'requires_review';
+
+/**
+ * One Safepay payment session aggregates the N grouped orders produced by a single
+ * donor cart. Payment is only ever confirmed by a signature-verified webhook or a
+ * server-to-server tracker reconciliation — never by a frontend redirect.
+ */
+export interface SafepayCheckout {
+  id: string;
+  donorId: string;
+  checkoutRequestId: string;
+  idempotencyId: string;
+  orderIds: string[];
+  transactionIds: string[];
+  lines: Array<{ productId: string; requirementId: string; campaignId: string; quantity: number }>;
+  amount: number;
+  amountMinor: number;
+  currency: string;
+  environment: 'sandbox' | 'production';
+  paymentStatus: SafepayPaymentStatus;
+  tracker?: string | null;
+  checkoutUrl?: string | null;
+  gatewayState?: string | null;
+  reservationExpiresAt: number;
+  lastError?: string | null;
+  confirmedAt?: number | null;
+  createdAt: number;
+  updatedAt: number;
 }
 
 export interface CartItem {

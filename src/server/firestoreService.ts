@@ -1,4 +1,4 @@
-import { initializeApp, getApps, getApp } from 'firebase-admin/app';
+import { applicationDefault, initializeApp, getApps, getApp } from 'firebase-admin/app';
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 import { assertCampaignReviewable, hasValidAdminCampaignApproval } from './campaignReviewPolicy';
@@ -29,8 +29,20 @@ import {
   OrderStateError,
   checkoutRequestKey
 } from './commerceService';
+import {
+  planRegistration,
+  RegistrationMode,
+  RegistrationPlan,
+  RegistrationRecords,
+  RegistrationState
+} from './registrationService';
 
-const app = getApps().length === 0 ? initializeApp({ projectId: firebaseConfig.projectId }) : getApp();
+const app = getApps().length === 0
+  ? initializeApp({
+      credential: applicationDefault(),
+      projectId: firebaseConfig.projectId
+    })
+  : getApp();
 export const db = firebaseConfig.firestoreDatabaseId && firebaseConfig.firestoreDatabaseId !== '(default)'
   ? getFirestore(app, firebaseConfig.firestoreDatabaseId)
   : getFirestore(app);
@@ -103,6 +115,64 @@ export async function saveIdentifierMapping(identifier: string, data: Identifier
   await db.collection('identifierMappings').doc(normalized).set({
     ...data,
     identifier: identifier.trim()
+  });
+}
+
+// -----------------
+// Registration (profile + identifier mappings + NGO/supplier record, one transaction)
+// -----------------
+/**
+ * Reads every document the registration could collide with, plans the writes, and (when commit is true)
+ * creates only the missing documents in the same transaction. tx.create() fails if a document appeared
+ * concurrently, so two requests can never both claim the same identifier, and nothing is ever overwritten.
+ */
+export async function runRegistrationTransaction(
+  records: RegistrationRecords,
+  mode: RegistrationMode,
+  commit: boolean
+): Promise<RegistrationPlan> {
+  return db.runTransaction(async tx => {
+    const userRef = db.collection('users').doc(records.uid);
+    const identifierRef = db.collection('identifierMappings').doc(records.identifierKey);
+    const emailRef = records.emailMapping ? db.collection('identifierMappings').doc(records.emailKey) : null;
+    const entityRef = records.entity ? db.collection(records.entity.collection).doc(records.uid) : null;
+
+    const refs = [userRef, identifierRef, ...(emailRef ? [emailRef] : []), ...(entityRef ? [entityRef] : [])];
+    const snapshots = await tx.getAll(...refs);
+    const byPath = new Map(snapshots.map(snapshot => [snapshot.ref.path, snapshot]));
+    const dataOf = <T>(ref: FirebaseFirestore.DocumentReference | null): T | null => {
+      const snapshot = ref ? byPath.get(ref.path) : undefined;
+      return snapshot?.exists ? ({ ...snapshot.data(), id: snapshot.id } as T) : null;
+    };
+
+    const usersWithEmailSnap = await tx.get(db.collection('users').where('email', '==', records.email).limit(10));
+    const entitiesSnap = records.entity
+      ? await tx.get(db.collection(records.entity.collection)
+          .where(records.entity.identifierField, '==', records.identifier)
+          .limit(10))
+      : null;
+
+    const state: RegistrationState = {
+      userDoc: dataOf(userRef),
+      identifierMapping: dataOf(identifierRef),
+      emailMapping: dataOf(emailRef),
+      entityDoc: dataOf(entityRef),
+      usersWithEmail: usersWithEmailSnap.docs.map(doc => ({ id: doc.id, firebaseUid: doc.get('firebaseUid') })),
+      entitiesWithIdentifier: entitiesSnap
+        ? entitiesSnap.docs.map(doc => ({ id: doc.id, linkedUserId: doc.get('linkedUserId') }))
+        : []
+    };
+
+    const plan = planRegistration(state, records, mode);
+    if (!commit) return plan;
+
+    for (const kind of plan.toCreate) {
+      if (kind === 'profile') tx.create(userRef, records.profile);
+      if (kind === 'identifierMapping') tx.create(identifierRef, records.identifierMapping);
+      if (kind === 'emailMapping' && emailRef && records.emailMapping) tx.create(emailRef, records.emailMapping);
+      if (kind === 'entity' && entityRef && records.entity) tx.create(entityRef, records.entity.record);
+    }
+    return plan;
   });
 }
 
@@ -666,13 +736,18 @@ export async function expirePendingDemoOrders(now = Date.now()): Promise<number>
   const snapshot = await db.collection('orders').where('status', '==', 'Payment Pending').get();
   let expiredCount = 0;
   for (const candidate of snapshot.docs) {
-    const expiresAt = Number(candidate.data().reservationExpiresAt || 0);
+    const data = candidate.data();
+    // Safepay orders carry a checkoutId and are expired atomically per session by
+    // expireSafepayCheckouts. Skip them here so stock is never restored twice.
+    if (data.checkoutId) continue;
+    const expiresAt = Number(data.reservationExpiresAt || 0);
     if (!expiresAt || expiresAt > now) continue;
     const orderRef = db.collection('orders').doc(candidate.id);
     const expired = await db.runTransaction(async transaction => {
       const orderSnapshot = await transaction.get(orderRef);
       if (!orderSnapshot.exists) return false;
       const order = { ...orderSnapshot.data(), id: orderSnapshot.id } as Order;
+      if (order.checkoutId) return false; // managed by the Safepay session expiry
       if (order.status !== 'Payment Pending' || !order.reservationExpiresAt || order.reservationExpiresAt > now) return false;
 
       const productQuantities = new Map<string, number>();

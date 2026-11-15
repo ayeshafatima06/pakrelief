@@ -65,22 +65,22 @@ export const HowItWorksPage: React.FC<HowItWorksPageProps> = ({ onNavigate }) =>
     },
     {
       id: 3,
-      title: "Step 3: Donor Cart & JazzCash Sandbox Checkout",
-      tag: "Sandbox Demo Reservation",
+      title: "Step 3: Donor Cart & Safepay Sandbox Checkout",
+      tag: "Webhook-Verified Payment",
       icon: CreditCard,
       color: "emerald",
-      description: "Donors select exact relief goods to reserve (e.g., 2 family ration packs for Dadu, Sindh). The current JazzCash screen is a demo only; no payment is processed or verified.",
+      description: "Donors select exact relief goods (e.g., 2 family ration packs for Dadu, Sindh) and pay on Safepay's hosted sandbox page. PakRelief only marks an order paid after Safepay's webhook is verified server-side — a redirect back to the site is never treated as payment.",
       details: [
-        "Donor sees a server-priced itemized reservation total.",
-        "No mobile account, CNIC, or MPIN is collected by the demo.",
-        "Demo reservations expire after 15 minutes unless an official payment callback is implemented."
+        "Donor sees a server-priced itemized total before redirecting to Safepay.",
+        "No card or wallet details are collected by PakRelief; payment happens on Safepay's hosted page.",
+        "Unpaid sandbox reservations expire, and failed or cancelled checkouts can be retried with the same cart."
       ],
       previewTitle: "Verifiable Transaction Record",
       previewData: {
         orderId: "PKR-ORD-2026-246891",
-        gatewayRef: "JC-SBX-061689-467",
+        gatewayRef: "SP-SBX-061689-467",
         amount: "PKR 13,000 (2 Family Ration Packs)",
-        status: "Demo reservation pending · no payment verified"
+        status: "Payment confirmed by Safepay webhook"
       }
     },
     {

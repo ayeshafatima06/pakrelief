@@ -195,7 +195,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <span className="text-xl font-black font-mono text-white">
               PKR {totalPkr.toLocaleString()}
             </span>
-            <span className="text-[10px] text-slate-400 block mt-0.5">Via JazzCash Sandbox</span>
+            <span className="text-[10px] text-slate-400 block mt-0.5">Via Safepay Sandbox</span>
           </div>
 
           <div className="bg-slate-800/80 p-3.5 rounded-xl border border-slate-700/60">
@@ -549,7 +549,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
           <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between text-xs">
             <span className="font-bold text-slate-700 uppercase tracking-wider">
-              JazzCash Sandbox Demo Records · No Gateway Verification
+              Safepay Sandbox Payment Records · Webhook-Verified
             </span>
             <span className="text-slate-500 font-mono">
               Total Logged: {transactions.length} Transactions
@@ -564,7 +564,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <th className="p-3">Order Number</th>
                   <th className="p-3">Donor Name</th>
                   <th className="p-3">Amount</th>
-                  <th className="p-3">Demo Payment Status</th>
+                  <th className="p-3">Payment Status</th>
                   <th className="p-3">Date</th>
                   <th className="p-3">Audit Action</th>
                 </tr>
@@ -581,7 +581,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <td className="p-3">
                       <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${tx.status === 'Verified' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
                         {tx.status === 'Verified' && <CheckCircle2 className="w-3 h-3 text-emerald-600" />}
-                        {tx.status === 'Pending' ? 'Demo · Pending' : tx.status || 'Unverified'}
+                        {tx.status || 'Unverified'}
                       </span>
                     </td>
                     <td className="p-3 text-slate-500 font-mono text-[11px]">

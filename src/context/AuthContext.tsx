@@ -207,27 +207,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         cred = await createUserWithEmailAndPassword(auth, data.email, data.password);
         uid = cred.user.uid;
-
-        // 2. Store profile in Firestore via backend
-        const res = await api.post('/auth/register-profile', {
-          uid,
-          email: data.email,
-          name: data.name,
-          role: data.role,
-          identifier: data.identifier,
-          contact: data.contact,
-          focalPerson: data.focalPerson,
-          registrationType: data.registrationType,
-          businessType: data.businessType,
-          warehouseCity: data.warehouseCity,
-          address: data.address
-        });
-
-        if (res.data.success) {
-          await fetchProfileForUid();
-          setIsLoading(false);
-          return { success: true };
-        }
       } catch (authErr: any) {
         // Migrate direct registrations through the server when client email/password auth is unavailable.
         if (
@@ -250,8 +229,40 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw authErr;
       }
 
-      setIsLoading(false);
-      return { success: false, error: 'Failed to complete registration profile.' };
+      // 2. Store profile in Firestore via backend. The Firebase account now exists, so a failure here
+      // must not be reported as a generic sign-up error (re-registering would hit email-already-in-use).
+      try {
+        const res = await api.post('/auth/register-profile', {
+          uid,
+          email: data.email,
+          name: data.name,
+          role: data.role,
+          identifier: data.identifier,
+          contact: data.contact,
+          focalPerson: data.focalPerson,
+          registrationType: data.registrationType,
+          businessType: data.businessType,
+          warehouseCity: data.warehouseCity,
+          address: data.address
+        });
+
+        if (res.data.success) {
+          await fetchProfileForUid();
+          setIsLoading(false);
+          return { success: true };
+        }
+        throw new Error(res.data.error || 'Profile could not be saved.');
+      } catch (profileErr: any) {
+        const serverMessage = profileErr.response?.data?.error || profileErr.message || 'Profile could not be saved.';
+        console.error('[PakRelief] Firebase account created but PakRelief profile registration failed:', profileErr.response?.status || '', serverMessage);
+        // Sign out locally only; the Firebase account itself is kept unchanged.
+        await signOut(auth).catch(() => undefined);
+        setIsLoading(false);
+        return {
+          success: false,
+          error: `Your sign-in account was created, but the PakRelief profile was not saved: ${serverMessage} Please do not sign up again — contact support to complete your profile.`
+        };
+      }
     } catch (err: any) {
       setIsLoading(false);
       let msg = err.response?.data?.error || err.message || 'Registration failed.';

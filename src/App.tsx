@@ -9,7 +9,7 @@ import { OrderTrackerPage } from './components/OrderTrackerPage';
 import { PortalsPage } from './components/PortalsPage';
 import { CampaignDetailModal } from './components/CampaignDetailModal';
 import { CartDrawer } from './components/CartDrawer';
-import { JazzCashModal } from './components/JazzCashModal';
+import { SafepayCheckoutModal } from './components/SafepayCheckoutModal';
 import { OrderReceiptModal } from './components/OrderReceiptModal';
 import { AuthModal } from './components/AuthModal';
 import { DonorDashboard } from './components/DonorDashboard';
@@ -42,6 +42,13 @@ export function App() {
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [receiptOrder, setReceiptOrder] = useState<Order | null>(null);
 
+  // Safepay hosted-checkout return state. Redirect/query params are NOT proof of
+  // payment; they only tell us which checkout to re-verify with the backend.
+  const [safepayReturn, setSafepayReturn] = useState<{
+    checkoutId: string;
+    outcome: 'complete' | 'cancel';
+  } | null>(null);
+
   // Fetch all live data
   const fetchData = async () => {
     try {
@@ -67,12 +74,40 @@ export function App() {
     fetchData();
   }, [user?.id]);
 
-  // Handle successful checkout
-  const handlePaymentSuccess = (createdOrders: Order[], gatewayRef: string) => {
-    fetchData();
-    if (createdOrders.length > 0) {
-      setReceiptOrder(createdOrders[0]);
+  // Parse the Safepay return URL exactly once, open the modal in return mode, and
+  // scrub the query params. The outcome param is only a hint — the modal re-verifies
+  // the true payment state with the backend before treating anything as paid.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const checkoutId = params.get('safepay_checkout');
+    const rawOutcome = params.get('safepay_outcome');
+    if (checkoutId && (rawOutcome === 'complete' || rawOutcome === 'cancel')) {
+      setSafepayReturn({ checkoutId, outcome: rawOutcome });
+      setIsCheckoutOpen(true);
+      params.delete('safepay_checkout');
+      params.delete('safepay_outcome');
+      const query = params.toString();
+      const cleanUrl = window.location.pathname + (query ? `?${query}` : '') + window.location.hash;
+      window.history.replaceState({}, '', cleanUrl);
     }
+  }, []);
+
+  // Handle a server-verified successful Safepay payment.
+  const handlePaid = (paidOrders: Order[]) => {
+    fetchData();
+    setIsCheckoutOpen(false);
+    setSafepayReturn(null);
+    setCurrentPage('dashboard');
+    // Only show a receipt when exactly one order was returned; an aggregate
+    // multi-order cart must not surface a misleading first-order receipt.
+    if (paidOrders.length === 1) {
+      setReceiptOrder(paidOrders[0]);
+    }
+  };
+
+  const handleCloseCheckout = () => {
+    setIsCheckoutOpen(false);
+    setSafepayReturn(null);
   };
 
   // Automatically route logged-in users to their role-specific landing page
@@ -253,11 +288,13 @@ export function App() {
         />
       )}
 
-      {/* JazzCash Sandbox Checkout Modal */}
-      <JazzCashModal
+      {/* Safepay Sandbox Hosted Checkout Modal (fresh + return/status modes) */}
+      <SafepayCheckoutModal
         isOpen={isCheckoutOpen}
-        onClose={() => setIsCheckoutOpen(false)}
-        onSuccess={handlePaymentSuccess}
+        onClose={handleCloseCheckout}
+        onPaid={handlePaid}
+        returnCheckoutId={safepayReturn?.checkoutId ?? null}
+        returnOutcome={safepayReturn?.outcome ?? null}
       />
 
       {/* Verifiable Order Receipt Modal */}

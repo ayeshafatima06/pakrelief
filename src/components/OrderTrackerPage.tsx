@@ -69,7 +69,7 @@ export const OrderTrackerPage: React.FC<OrderTrackerPageProps> = ({
           Relief Order Traceability Tracker
         </h1>
         <p className="text-xs sm:text-sm text-slate-600 mt-1">
-          Track public order progress. Sandbox demo reservations are shown as pending, not paid.
+          Track public order progress. Safepay sandbox payments stay pending until webhook-verified — never assumed paid.
         </p>
       </div>
 
@@ -87,7 +87,7 @@ export const OrderTrackerPage: React.FC<OrderTrackerPageProps> = ({
         </div>
 
         <div className="flex items-center gap-2 w-full md:w-auto overflow-x-auto text-xs pb-1">
-          <span className="text-slate-400 font-semibold shrink-0">Quick Demo Orders:</span>
+          <span className="text-slate-400 font-semibold shrink-0">Recent Orders:</span>
           {orders.slice(0, 3).map((ord) => (
             <button
               key={ord.id}
@@ -164,11 +164,11 @@ export const OrderTrackerPage: React.FC<OrderTrackerPageProps> = ({
               <div className="p-4 rounded-2xl bg-emerald-50/70 border border-emerald-200">
                 <div className="flex items-center gap-2 text-xs font-bold text-emerald-800 mb-1">
                   <CreditCard className="w-4 h-4 text-emerald-600" />
-                  <span>{selectedOrder.status === 'Payment Pending' ? '2. Demo Reservation' : selectedOrder.status === 'Payment Expired' ? '2. Reservation Expired' : '2. Payment Status'}</span>
+                  <span>{selectedOrder.status === 'Payment Pending' ? '2. Payment Pending' : selectedOrder.status === 'Payment Expired' ? '2. Reservation Expired' : '2. Payment Status'}</span>
                 </div>
                 <p className="text-[11px] text-slate-600">
                   {selectedOrder.status === 'Payment Pending' || selectedOrder.status === 'Payment Expired' || selectedOrder.status === 'Paid'
-                    ? 'No payment was submitted or verified.'
+                    ? 'Payment not verified — not counted as paid.'
                     : <>Reference: <span className="font-mono font-bold text-slate-800">{selectedOrder.gatewayReference}</span></>}
                 </p>
               </div>
@@ -238,7 +238,7 @@ export const OrderTrackerPage: React.FC<OrderTrackerPageProps> = ({
         </div>
       ) : (
         <div className="bg-white rounded-3xl border border-slate-200 p-12 text-center text-slate-500 text-xs">
-          No order selected. Search for an order above or select from the demo buttons.
+          No order selected. Search for an order above or select from the recent order buttons.
         </div>
       )}
     </div>

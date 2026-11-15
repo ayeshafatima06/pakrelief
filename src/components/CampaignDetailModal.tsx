@@ -307,7 +307,7 @@ export const CampaignDetailModal: React.FC<CampaignDetailModalProps> = ({
         {/* Modal Footer */}
         <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
           <div className="text-xs text-slate-600 font-medium">
-            Ready to checkout? Open cart to pay via <strong>JazzCash Sandbox</strong>.
+            Ready to checkout? Open cart to pay via <strong>Safepay Sandbox</strong> hosted checkout.
           </div>
           <button
             onClick={onClose}

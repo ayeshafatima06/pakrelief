@@ -48,15 +48,31 @@ import {
   expirePendingDemoOrders,
   getTransactionsByDonor,
   getTransactions, 
-  saveTransaction
+  saveTransaction,
+  runRegistrationTransaction
 } from './firestoreService';
 import { sendOtpEmail } from './emailService';
-import { assertFirebaseEmailAvailable, migrateLegacyUserToFirebaseAuth, setCustomClaim, verifyFirebaseIdToken } from './adminAuthService';
+import {
+  assertFirebaseEmailAvailable,
+  getFirebaseAuthAccount,
+  migrateLegacyUserToFirebaseAuth,
+  setCustomClaim,
+  verifyFirebaseIdToken
+} from './adminAuthService';
 import { AuthenticatedRequest, createAuthMiddleware } from './authMiddleware';
+import { createRegistrationRouter } from './registrationRoutes';
 import { createCampaignWorkflowRouter } from './campaignWorkflow';
 import { hasValidAdminCampaignApproval } from './campaignReviewPolicy';
 import { createSocialMediaService } from './socialMediaService';
 import { CheckoutValidationError, normalizeCheckoutLines } from './commerceService';
+import { createSafepayRouter } from './safepayRoutes';
+import {
+  cancelSafepayCheckout,
+  createSafepayCheckout,
+  expireSafepayCheckouts,
+  getSafepayCheckoutForDonor,
+  handleSafepayWebhook
+} from './safepayCheckoutService';
 import { 
   Campaign, 
   Requirement, 
@@ -69,11 +85,24 @@ import {
 } from '../types';
 
 export const app = express();
-app.use(express.json());
+// Capture the exact raw request body before JSON parsing. The Safepay webhook verifies
+// HMAC-SHA512 over these original bytes; re-serializing the parsed JSON would break it.
+// All other routes continue to receive the normally parsed req.body unchanged.
+app.use(express.json({
+  verify: (req, _res, buf) => {
+    (req as Request & { rawBody?: Buffer }).rawBody = buf;
+  }
+}));
 
 import crypto from 'crypto';
 
 const provisionedAdminUids = new Set((process.env.PAKRELIEF_ADMIN_UIDS || '')
+  .split(',')
+  .map(uid => uid.trim())
+  .filter(Boolean));
+
+// Firebase UIDs allowed to use /api/auth/recover-profile. Empty (the default) disables recovery entirely.
+const recoveryAllowedUids = new Set((process.env.PAKRELIEF_RECOVERY_UIDS || '')
   .split(',')
   .map(uid => uid.trim())
   .filter(Boolean));
@@ -295,132 +324,19 @@ app.post('/api/auth/lookup-identifier', async (req: Request, res: Response): Pro
   });
 });
 
-app.post('/api/auth/register-profile', requireFirebaseIdentity, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-  const { 
-    uid, 
-    email, 
-    name, 
-    role, 
-    identifier, 
-    contact,
-    focalPerson,
-    registrationType,
-    businessType,
-    warehouseCity,
-    address
-  } = req.body;
-
-  if (!role || !identifier) {
-    res.status(400).json({ success: false, error: 'Missing mandatory registration fields.' });
-    return;
+// Sign-up profile creation and existing-account recovery. All ownership fields (profile id, both
+// identifier mappings' userId, NGO/supplier id + linkedUserId) come from the verified Firebase UID,
+// and every record is created in one Firestore transaction that never overwrites existing documents.
+app.use('/api', createRegistrationRouter({
+  requireFirebaseIdentity,
+  runRegistration: runRegistrationTransaction,
+  getAuthAccount: getFirebaseAuthAccount,
+  isRecoveryAllowedUid: uid => recoveryAllowedUids.has(uid),
+  onRegistered: async records => {
+    // Server authorization uses the trusted profile and admin UID allowlist, not this donor claim.
+    if (records.role === 'donor') await setCustomClaim(records.uid, { role: records.role });
   }
-
-  const verifiedUid = req.user?.uid;
-  const verifiedEmail = req.user?.email;
-  if (!verifiedUid || !verifiedEmail || (uid && uid !== verifiedUid)) {
-    res.status(403).json({ success: false, error: 'Registration identity must match the verified Firebase account.' });
-    return;
-  }
-
-  if (!['donor', 'ngo', 'supplier'].includes(role)) {
-    res.status(400).json({ success: false, error: 'Self-registration is limited to donor, NGO, and supplier accounts.' });
-    return;
-  }
-
-  if (await getUserById(verifiedUid)) {
-    res.status(409).json({ success: false, error: 'A profile already exists for this Firebase account.' });
-    return;
-  }
-
-  const now = Date.now();
-  const normalizedEmail = verifiedEmail.trim().toLowerCase();
-  if (await getIdentifierMapping(identifier) || await getIdentifierMapping(normalizedEmail)) {
-    res.status(409).json({ success: false, error: 'This identifier or email is already registered. Contact support if this is your account.' });
-    return;
-  }
-  const isDonor = role === 'donor';
-  const initialStatus = isDonor ? 'approved' : 'pending';
-
-  // 1. Create UserProfile in Firestore
-  const userProfile: UserProfile = {
-    id: verifiedUid,
-    firebaseUid: verifiedUid,
-    email: normalizedEmail,
-    name: name || normalizedEmail,
-    role,
-    contact: contact || '',
-    emailVerified: true,
-    verificationStatus: initialStatus === 'approved' ? 'active' : 'pending',
-    createdAt: now,
-    identifier: identifier.trim()
-  };
-  await saveUser(userProfile);
-
-  // 2. Save Identifier Mapping
-  await saveIdentifierMapping(identifier, {
-    identifier: identifier.trim(),
-    email: normalizedEmail,
-    role,
-    userId: uid,
-    name: userProfile.name,
-    verificationStatus: initialStatus
-  });
-
-  // Also map email as identifier
-  await saveIdentifierMapping(normalizedEmail, {
-    identifier: normalizedEmail,
-    email: normalizedEmail,
-    role,
-    userId: uid,
-    name: userProfile.name,
-    verificationStatus: initialStatus
-  });
-
-  // 3. Create Role-Specific Entity Record
-  if (role === 'ngo') {
-    const ngoProfile: NgoProfile = {
-      id: uid,
-      linkedUserId: uid,
-      organizationName: name,
-      registrationType: registrationType || 'SECP',
-      registrationNumber: identifier.trim(),
-      focalPerson: focalPerson || name,
-      phone: contact || '',
-      address: address || '',
-      email: normalizedEmail,
-      status: 'pending',
-      createdAt: now
-    };
-    await saveNgo(ngoProfile);
-  } else if (role === 'supplier') {
-    const supplierProfile: SupplierProfile = {
-      id: uid,
-      linkedUserId: uid,
-      companyName: name,
-      businessType: businessType || 'Distributor',
-      cuinOrCnic: identifier.trim(),
-      warehouseCity: warehouseCity || 'Karachi',
-      phone: contact || '',
-      email: normalizedEmail,
-      status: 'pending',
-      createdAt: now
-    };
-    await saveSupplier(supplierProfile);
-  }
-
-  // Server authorization uses the trusted profile and admin UID allowlist, not this donor claim.
-  if (isDonor) {
-    await setCustomClaim(verifiedUid, { role });
-  }
-
-  res.json({
-    success: true,
-    user: userProfile,
-    message: initialStatus === 'pending'
-      ? 'Registration submitted! Your statutory documents are awaiting NDMA Admin approval.'
-      : 'Account registered and verified successfully.'
-  });
-});
+}));
 
 // Legacy Registration Migration (server provisions Firebase Auth when client email/password auth is unavailable)
 app.post('/api/auth/register-direct', async (req: Request, res: Response): Promise<void> => {
@@ -845,6 +761,7 @@ app.post('/api/requirements', requireAuth, requireNgo, async (req: Authenticated
 
 app.get('/api/products', async (req: Request, res: Response): Promise<void> => {
   await expirePendingDemoOrders();
+  await expireSafepayCheckouts();
   const supplierId = req.query.supplierId as string | undefined;
   const products = await getProducts(supplierId);
   res.json({ success: true, products });
@@ -973,6 +890,7 @@ function toPublicOrder(order: Order): Order {
 
 app.get('/api/orders', optionalAuth, async (req: Request, res: Response): Promise<void> => {
   await expirePendingDemoOrders();
+  await expireSafepayCheckouts();
   const allOrders = await getOrders();
   const authenticatedRequest = req as AuthenticatedRequest;
   const profile = authenticatedRequest.profile;
@@ -1145,6 +1063,17 @@ app.patch('/api/orders/:id/deliver', requireAuth, requireSupplier, deliverOrder)
 app.post('/api/orders/deliver', requireAuth, requireSupplier, deliverOrder);
 app.patch('/api/orders/:id/confirm-ngo', requireAuth, requireNgo, confirmNgoOrder);
 app.post('/api/orders/confirm-receipt', requireAuth, requireNgo, confirmNgoOrder);
+
+// Safepay hosted checkout (real gateway). Donor routes are Firebase-authenticated and
+// donor-scoped; the webhook is unauthenticated but HMAC-SHA512 verified over the raw body.
+app.use('/api/payments/safepay', createSafepayRouter({
+  requireAuth,
+  requireDonor,
+  createCheckout: createSafepayCheckout,
+  getCheckout: getSafepayCheckoutForDonor,
+  cancelCheckout: cancelSafepayCheckout,
+  handleWebhook: handleSafepayWebhook
+}));
 
 // Compatibility endpoint: this is a demo reservation, never a gateway verification.
 app.post('/api/payments/verify-jazzcash', requireAuth, requireDonor, async (req: AuthenticatedRequest, res: Response): Promise<void> => {

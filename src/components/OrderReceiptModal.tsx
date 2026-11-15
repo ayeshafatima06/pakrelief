@@ -26,9 +26,9 @@ export const OrderReceiptModal: React.FC<OrderReceiptModalProps> = ({ order, onC
   const steps = [
     {
       id: 'paid',
-      title: order.status === 'Payment Pending' ? 'Demo Reservation Pending' : order.status === 'Payment Expired' ? 'Demo Reservation Expired' : order.status === 'Paid' ? 'Legacy Payment Status Unverified' : 'Payment Confirmed',
+      title: order.status === 'Payment Pending' ? 'Payment Pending' : order.status === 'Payment Expired' ? 'Payment Expired' : order.status === 'Paid' ? 'Legacy Payment Status Unverified' : 'Payment Confirmed',
       desc: order.status === 'Payment Pending' || order.status === 'Payment Expired' || order.status === 'Paid'
-        ? 'No payment was submitted or verified.'
+        ? 'Payment not verified by webhook.'
         : `Ref: ${order.gatewayReference}`,
       date: new Date(order.createdAt).toLocaleDateString('en-PK', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
       isCompleted: order.status !== 'Payment Pending' && order.status !== 'Payment Expired' && order.status !== 'Paid',
@@ -76,7 +76,7 @@ export const OrderReceiptModal: React.FC<OrderReceiptModalProps> = ({ order, onC
           <div className="flex items-center gap-2">
             <ShieldCheck className="w-5 h-5 text-emerald-400" />
             <span className="font-bold text-sm sm:text-base">
-              {order.status === 'Payment Pending' || order.status === 'Payment Expired' ? 'PakRelief Demo Reservation' : order.status === 'Paid' ? 'Legacy Order · Unverified' : 'PakRelief Traceable Receipt'}
+              {order.status === 'Payment Pending' || order.status === 'Payment Expired' ? 'PakRelief Sandbox Payment' : order.status === 'Paid' ? 'Legacy Order · Unverified' : 'PakRelief Traceable Receipt'}
             </span>
           </div>
           <div className="flex items-center gap-2">
@@ -103,7 +103,7 @@ export const OrderReceiptModal: React.FC<OrderReceiptModalProps> = ({ order, onC
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
               <div>
                 <span className="text-[10px] uppercase font-bold tracking-widest text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                  {order.status === 'Payment Pending' || order.status === 'Payment Expired' || order.status === 'Paid' ? 'Sandbox Demo · Not Paid' : 'Verifiable Order'}
+                  {order.status === 'Payment Pending' || order.status === 'Payment Expired' || order.status === 'Paid' ? 'Payment Not Verified' : 'Verifiable Order'}
                 </span>
                 <h3 className="text-xl font-mono font-black text-slate-900 mt-1">
                   {order.orderNumber}
@@ -116,13 +116,13 @@ export const OrderReceiptModal: React.FC<OrderReceiptModalProps> = ({ order, onC
 
               <div className="sm:text-right">
                 <span className="text-xs text-slate-500 block">
-                  {order.status === 'Payment Pending' ? 'Estimated reservation:' : order.status === 'Payment Expired' ? 'Expired reservation:' : order.status === 'Paid' ? 'Unverified legacy amount:' : 'Total Contribution:'}
+                  {order.status === 'Payment Pending' ? 'Pending payment:' : order.status === 'Payment Expired' ? 'Expired reservation:' : order.status === 'Paid' ? 'Unverified legacy amount:' : 'Total Contribution:'}
                 </span>
                 <span className="text-2xl font-black font-mono text-emerald-700">
                   PKR {order.amount.toLocaleString()}
                 </span>
                 <span className="text-[11px] font-mono text-slate-500 block">
-                  JazzCash Ref: {order.gatewayReference}
+                  Payment Ref: {order.gatewayReference}
                 </span>
               </div>
             </div>

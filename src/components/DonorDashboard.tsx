@@ -93,7 +93,7 @@ export const DonorDashboard: React.FC<DonorDashboardProps> = ({
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold rounded-full bg-amber-100 text-amber-800 border border-amber-200">
             <Clock className="w-3.5 h-3.5 text-amber-600" />
-            Demo Reservation Pending
+            Payment Pending
           </span>
         );
       case 'Payment Expired':
@@ -179,7 +179,7 @@ export const DonorDashboard: React.FC<DonorDashboardProps> = ({
             <span className="text-2xl font-black font-mono text-emerald-400">
               PKR {totalDonated.toLocaleString()}
             </span>
-            <span className="text-[11px] text-slate-400 mt-0.5 block">Via JazzCash Sandbox</span>
+            <span className="text-[11px] text-slate-400 mt-0.5 block">Via Safepay Sandbox</span>
           </div>
 
           <div className="bg-slate-800/80 p-4 rounded-xl border border-slate-700/60">
@@ -417,7 +417,7 @@ export const DonorDashboard: React.FC<DonorDashboardProps> = ({
                 <div className="flex items-center gap-3">
                   <div className="text-right">
                     <span className="text-[11px] text-slate-400 block font-medium">
-                      {order.status === 'Payment Pending' ? 'Estimated reservation' : order.status === 'Payment Expired' ? 'Expired reservation' : order.status === 'Paid' ? 'Legacy unverified amount' : 'Amount Paid'}
+                      {order.status === 'Payment Pending' ? 'Pending payment' : order.status === 'Payment Expired' ? 'Expired reservation' : order.status === 'Paid' ? 'Legacy unverified amount' : 'Amount Paid'}
                     </span>
                     <span className="text-base font-black font-mono text-emerald-700">
                       PKR {order.amount.toLocaleString()}

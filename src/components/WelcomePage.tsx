@@ -102,7 +102,7 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({
               </div>
               <h3 className="font-bold text-base text-slate-900">Donors & Public</h3>
               <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                Fund specific relief packages, pay securely via JazzCash, and download itemized tax-compliant receipts with live delivery tracking.
+                Fund specific relief packages, pay securely via Safepay sandbox hosted checkout, and download itemized tax-compliant receipts with live delivery tracking.
               </p>
             </div>
             <div className="mt-5 pt-4 border-t border-slate-100 flex items-center gap-2">

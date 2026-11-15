@@ -1,4 +1,4 @@
-import { initializeApp, getApps, getApp } from 'firebase-admin/app';
+import { applicationDefault, initializeApp, getApps, getApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import firebaseConfig from '../../firebase-applet-config.json';
 
@@ -6,8 +6,9 @@ let adminAuth: ReturnType<typeof getAuth> | null = null;
 
 try {
   const existingApps = getApps();
+  // Use the same credential source as firestoreService so behaviour does not depend on module import order.
   const app = existingApps.length === 0
-    ? initializeApp({ projectId: firebaseConfig.projectId })
+    ? initializeApp({ credential: applicationDefault(), projectId: firebaseConfig.projectId })
     : getApp();
   adminAuth = getAuth(app);
 } catch (err) {
@@ -72,6 +73,29 @@ export async function assertFirebaseEmailAvailable(email: string): Promise<void>
   }
 }
 
+export interface FirebaseAuthAccount {
+  uid: string;
+  email?: string;
+  disabled: boolean;
+}
+
+/**
+ * Read-only lookup of an existing Firebase Authentication account. Never creates, updates,
+ * or deletes the account. Returns null only when Firebase reports that the UID does not exist.
+ */
+export async function getFirebaseAuthAccount(uid: string): Promise<FirebaseAuthAccount | null> {
+  if (!adminAuth) {
+    throw new Error('Firebase Admin Authentication is unavailable. Configure server application credentials.');
+  }
+  try {
+    const record = await adminAuth.getUser(uid);
+    return { uid: record.uid, email: record.email, disabled: record.disabled };
+  } catch (error: any) {
+    if (error?.code === 'auth/user-not-found') return null;
+    throw error;
+  }
+}
+
 export interface VerifiedTokenUser {
   uid: string;
   email?: string;
@@ -81,21 +105,52 @@ export interface VerifiedTokenUser {
 
 export async function verifyTokenWithRevocationCheck<T extends VerifiedTokenUser>(
   token: string,
-  verify: (token: string, checkRevoked: true) => Promise<T>
+  verify: (token: string, checkRevoked: true) => Promise<T>,
+  onError?: (error: unknown) => void
 ): Promise<T | null> {
   if (!token) return null;
   try {
     return await verify(token, true);
-  } catch {
+  } catch (error) {
+    onError?.(error);
     return null;
   }
 }
 
+// Token-content errors are the caller's problem; anything else usually means the server's
+// Firebase Admin credentials are missing or invalid (the request is then rejected even for a valid token).
+const CLIENT_TOKEN_ERROR_CODES = new Set([
+  'auth/id-token-expired',
+  'auth/id-token-revoked',
+  'auth/argument-error',
+  'auth/invalid-id-token',
+  'auth/user-disabled',
+  'auth/user-not-found'
+]);
+
+function logTokenVerificationFailure(error: unknown): void {
+  const code = (error as { code?: string })?.code || 'unknown';
+  if (CLIENT_TOKEN_ERROR_CODES.has(code)) {
+    console.warn(`[AdminAuthService] Firebase ID token rejected (code=${code}).`);
+    return;
+  }
+  // Never log the token itself; the code and message are enough to diagnose configuration problems.
+  console.error(
+    `[AdminAuthService] Firebase ID token could not be verified (code=${code}). ` +
+    'Check the server Firebase Admin credentials (Application Default Credentials / GOOGLE_APPLICATION_CREDENTIALS).',
+    (error as { message?: string })?.message || ''
+  );
+}
+
 export async function verifyFirebaseIdToken(token: string): Promise<VerifiedTokenUser | null> {
-  if (!token || !adminAuth) return null;
+  if (!token) return null;
+  if (!adminAuth) {
+    console.error('[AdminAuthService] Firebase Admin Authentication is not initialized; rejecting authenticated request.');
+    return null;
+  }
 
   const decoded = await verifyTokenWithRevocationCheck(token, (idToken, checkRevoked) =>
-    adminAuth!.verifyIdToken(idToken, checkRevoked));
+    adminAuth!.verifyIdToken(idToken, checkRevoked), logTokenVerificationFailure);
   if (!decoded) return null;
     return {
       uid: decoded.uid,

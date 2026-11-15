@@ -346,8 +346,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <th className="p-3">Campaign</th>
                       <th className="p-3">Approval</th>
                       <th className="p-3">Facebook</th>
-                      <th className="p-3">Instagram</th>
-                      <th className="p-3">WhatsApp</th>
+                      {/* <th className="p-3">Instagram</th>
+                      <th className="p-3">WhatsApp</th> */}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -358,7 +358,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           <div className="text-[10px] text-slate-500 font-mono">{row.campaignId}</div>
                         </td>
                         <td className="p-3 font-semibold text-emerald-700">{row.approvalStatus}</td>
-                        {(['facebook', 'instagram', 'whatsapp'] as SocialPlatform[]).map(platform => {
+                        {(['facebook'] as SocialPlatform[]).map(platform => {
                           const publication = row.socialPublishing?.[platform];
                           const state = publication?.status || 'pending';
                           const retryAvailable = state === 'failed' && publication?.retryable !== false &&

@@ -200,7 +200,7 @@ export const DonorDashboard: React.FC<DonorDashboardProps> = ({
         </div>
       </div>
 
-      <form onSubmit={handleSaveWhatsAppConsent} className="bg-white border border-slate-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-end gap-3">
+      {/* <form onSubmit={handleSaveWhatsAppConsent} className="bg-white border border-slate-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-end gap-3">
         <div className="flex-1 space-y-3">
           <label className="flex items-start gap-2 text-xs text-slate-700">
             <input
@@ -231,7 +231,7 @@ export const DonorDashboard: React.FC<DonorDashboardProps> = ({
         >
           {isSavingWhatsAppConsent ? 'Saving…' : 'Save preferences'}
         </button>
-      </form>
+      </form> */}
 
       {/* Role Landing Tabs */}
       <div className="flex items-center gap-2 border-b border-slate-200 pb-2">

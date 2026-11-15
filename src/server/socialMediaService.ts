@@ -191,21 +191,42 @@ function retryAfterTimestamp(response: Response, now: number): number | undefine
   const date = Date.parse(header);
   return Number.isFinite(date) ? date : undefined;
 }
-
+async function getPageAccessToken(fetcher: typeof fetch, config: SocialMediaConfig): Promise<string> {
+  const url = new URL(`https://graph.facebook.com/${config.graphApiVersion}/${config.pageId}`);
+  url.searchParams.set('fields', 'access_token');
+  url.searchParams.set('appsecret_proof', appSecretProof(config));
+  const response = await fetcher(url, {
+    headers: { Authorization: `Bearer ${config.accessToken}` },
+    signal: AbortSignal.timeout(15000)
+  });
+  let payload: Record<string, any> = {};
+  try { payload = await response.json() as Record<string, any>; } catch { payload = {}; }
+  if (!response.ok || payload.error || typeof payload.access_token !== 'string' || !payload.access_token) {
+    throw new MetaApiError(
+      cleanMetaMessage(payload.error?.message || 'Could not get Page access token.'),
+      payload.error?.code ? String(payload.error.code) : 'PAGE_TOKEN_ERROR',
+      undefined,
+      false
+    );
+  }
+  return payload.access_token;
+}
 async function postMeta(
   fetcher: typeof fetch,
   config: SocialMediaConfig,
   path: string,
   body: Record<string, unknown>,
   formEncoded = false,
-  now = Date.now()
+  now = Date.now(),
+  tokenOverride?: string
 ): Promise<Record<string, any>> {
-  const url = new URL(`https://graph.facebook.com/${config.graphApiVersion}/${path}`);
-  url.searchParams.set('appsecret_proof', appSecretProof(config));
+  const effectiveConfig = tokenOverride ? { ...config, accessToken: tokenOverride } : config;
+  const url = new URL(`https://graph.facebook.com/${effectiveConfig.graphApiVersion}/${path}`);
+  url.searchParams.set('appsecret_proof', appSecretProof(effectiveConfig));
   const response = await fetcher(url, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${config.accessToken}`,
+      Authorization: `Bearer ${effectiveConfig.accessToken}`,
       'Content-Type': formEncoded ? 'application/x-www-form-urlencoded' : 'application/json'
     },
     body: formEncoded ? new URLSearchParams(Object.entries(body).map(([key, value]) => [key, String(value)])) : JSON.stringify(body),
@@ -260,9 +281,10 @@ export function createSocialMediaService(dependencies: SocialMediaDependencies) 
 
   const publishFacebook = async (campaign: Campaign, config: SocialMediaConfig): Promise<SocialPublicationResult> => {
     requiredConfig(config, 'facebook');
+    const pageToken = await getPageAccessToken(fetcher, config);
     const response = await postMeta(fetcher, config, `${config.pageId}/feed`, {
       message: campaignCaption(campaign, config)
-    }, true, now());
+    }, true, now(), pageToken);
     if (typeof response.id !== 'string' || !response.id) throw new MetaApiError('Meta did not confirm a Facebook post ID.', 'MISSING_POST_ID', undefined, false);
     return { publishedId: response.id };
   };
